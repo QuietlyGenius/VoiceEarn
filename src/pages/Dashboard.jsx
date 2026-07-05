@@ -39,48 +39,31 @@ export default function Dashboard() {
       setLoading(true);
       const headers = { 'Authorization': `Bearer ${session.access_token}` };
 
-      // 0. Refresh wallet balance (profile is cached in AuthContext and won't
-      // otherwise pick up server-side changes from withdrawals/approvals)
+      // Refresh the cached wallet balance (picks up server-side changes from
+      // withdrawals/approvals) in parallel with everything else.
       refreshProfile();
 
-      // 1. Fetch Exchange Rate
-      const exRes = await fetch('/api/exchange-rate');
-      if (exRes.ok) {
-        const exData = await exRes.json();
-        setExchangeRate(exData.rate);
-      }
+      // Fire all dashboard requests concurrently instead of waterfalling —
+      // each is a separate serverless function, so serial awaits multiply the
+      // latency. Promise.allSettled so one slow/failed call can't block the rest.
+      const [exRes, settingsRes, booksRes, recRes, wRes] = await Promise.allSettled([
+        fetch('/api/exchange-rate'),
+        fetch('/api/settings', { headers }),
+        fetch('/api/books', { headers }),
+        fetch('/api/recordings', { headers }),
+        fetch('/api/withdrawals', { headers })
+      ]);
 
-      // 2. Fetch Configurable Rate Per Page
-      const settingsRes = await fetch('/api/settings', { headers });
-      if (settingsRes.ok) {
-        const settingsData = await settingsRes.json();
-        const rateSetting = settingsData.find(s => s.key === 'rate_per_page');
-        if (rateSetting) {
-          setRatePerPage(parseFloat(rateSetting.value));
-        }
-      }
+      const ok = (r) => r.status === 'fulfilled' && r.value.ok;
 
-      // 3. Fetch Books
-      const booksRes = await fetch('/api/books', { headers });
-      if (booksRes.ok) {
-        const booksData = await booksRes.json();
-        setBooks(booksData);
+      if (ok(exRes)) setExchangeRate((await exRes.value.json()).rate);
+      if (ok(settingsRes)) {
+        const rate = (await settingsRes.value.json()).find((s) => s.key === 'rate_per_page');
+        if (rate) setRatePerPage(parseFloat(rate.value));
       }
-
-      // 4. Fetch User Recordings
-      const recRes = await fetch('/api/recordings', { headers });
-      if (recRes.ok) {
-        const recData = await recRes.json();
-        setRecordings(recData);
-      }
-
-      // 5. Fetch User Withdrawals
-      const wRes = await fetch('/api/withdrawals', { headers });
-      if (wRes.ok) {
-        const wData = await wRes.json();
-        setWithdrawals(wData);
-      }
-
+      if (ok(booksRes)) setBooks(await booksRes.value.json());
+      if (ok(recRes)) setRecordings(await recRes.value.json());
+      if (ok(wRes)) setWithdrawals(await wRes.value.json());
     } catch (err) {
       console.error('Error fetching dashboard data:', err);
     } finally {

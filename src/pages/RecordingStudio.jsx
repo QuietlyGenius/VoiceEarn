@@ -72,17 +72,17 @@ export default function RecordingStudio() {
     const fetchBookAndPages = async () => {
       try {
         setLoading(true);
-        const res = await fetch(`/api/books?bookId=${bookId}`, {
-          headers: { Authorization: `Bearer ${session.access_token}` }
-        });
+        const headers = { Authorization: `Bearer ${session.access_token}` };
+        // Load the book+pages and the progress list concurrently.
+        const [res, booksRes] = await Promise.all([
+          fetch(`/api/books?bookId=${bookId}`, { headers }),
+          fetch('/api/books', { headers })
+        ]);
         if (!res.ok) throw new Error('Failed to load book');
         const data = await res.json();
         setBook(data.book);
         setPages(data.pages);
 
-        const booksRes = await fetch('/api/books', {
-          headers: { Authorization: `Bearer ${session.access_token}` }
-        });
         if (booksRes.ok) {
           const booksData = await booksRes.json();
           const currentBook = booksData.find((b) => b.id == bookId);

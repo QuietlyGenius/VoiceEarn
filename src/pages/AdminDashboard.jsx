@@ -5,7 +5,6 @@ import {
   UserCheck, Clock, GraduationCap, Globe, Languages, Download, Mail
 } from 'lucide-react';
 import { Link } from 'react-router-dom';
-import { extractTextFromFile } from '../lib/bookFileParser';
 
 export default function AdminDashboard() {
   const { session } = useAuth();
@@ -143,6 +142,8 @@ export default function AdminDashboard() {
 
         if (!textToUpload) {
           setFileParsingStep('Extracting text from the document…');
+          // Loaded on demand so pdfjs/JSZip stay out of the initial bundle.
+          const { extractTextFromFile } = await import('../lib/bookFileParser');
           textToUpload = (await extractTextFromFile(selectedFile)).trim();
           if (!textToUpload) {
             throw new Error('Could not extract any text from this file. It may be image-only or corrupted — try pasting the book text manually.');
