@@ -373,23 +373,27 @@ export default function Dashboard() {
             
             {/* Audio submissions */}
             <div className="space-y-3">
-              <h3 className="text-sm font-black uppercase tracking-wider text-slate-500">Your Recording Clips</h3>
-              <div className="space-y-2">
+              <h3 className="text-[13px] font-black uppercase tracking-wider text-slate-400">Your Recording Clips</h3>
+              <div className="space-y-2.5">
                 {recordings.length === 0 ? (
-                  <p className="text-xs text-slate-600 italic text-center py-4">No recordings submitted yet.</p>
+                  <p className="text-sm text-slate-500 italic text-center py-6">No recordings submitted yet.</p>
                 ) : (
-                  recordings.map((rec) => (
-                    <div key={rec.id} className="bg-slate-900/30 p-4 rounded-xl border border-slate-900 flex items-center justify-between text-sm">
-                      <div>
-                        <span className="font-bold text-white block truncate max-w-[180px]">
+                  recordings.map((rec) => {
+                    const earnedUsd = parseFloat(rec.approved_minutes || 0) * ratePerPage;
+                    const estimateUsd = (rec.pages_recorded || 1) * ratePerPage;
+                    const isEarned = rec.status === 'approved' || rec.status === 'partially_approved';
+                    return (
+                    <div key={rec.id} className="bg-slate-900/30 p-4 rounded-2xl border border-slate-900 flex items-center justify-between gap-3">
+                      <div className="min-w-0">
+                        <span className="font-bold text-white text-[15px] block truncate">
                           {rec.books?.title}
                         </span>
-                        <span className="text-[10px] text-slate-500 block font-bold uppercase tracking-wider mt-0.5">
+                        <span className="text-[11px] text-slate-400 block font-semibold mt-1">
                           Submitted {new Date(rec.created_at).toLocaleDateString()}
                         </span>
                       </div>
-                      <div className="text-right">
-                        <span className={`px-2.5 py-1 rounded-full font-black text-[9px] uppercase border ${
+                      <div className="text-right shrink-0">
+                        <span className={`px-3 py-1 rounded-full font-black text-[11px] uppercase border ${
                           rec.status === 'approved' ? 'bg-emerald-950/20 text-emerald-400 border-emerald-900/30' :
                           rec.status === 'rejected' ? 'bg-red-950/20 text-red-400 border-red-900/30' :
                           rec.status === 'partially_approved' ? 'bg-indigo-950/20 text-indigo-400 border-indigo-900/30' :
@@ -397,47 +401,53 @@ export default function Dashboard() {
                         }`}>
                           {rec.status === 'pending' ? 'Reviewing' : rec.status.replace('_', ' ')}
                         </span>
-                        {(rec.status === 'approved' || rec.status === 'partially_approved') && (
+                        {isEarned && (
                           <>
-                            <span className="text-[10px] text-emerald-400 font-extrabold block mt-1 font-mono">
-                              +${(parseFloat(rec.approved_minutes || 0) * ratePerPage).toFixed(2)}
+                            <span className="text-base text-emerald-400 font-extrabold block mt-1.5 font-mono">
+                              +${earnedUsd.toFixed(2)}
                             </span>
-                            <span className="text-[9px] text-slate-500 font-bold block font-mono">
-                              ≈ {toINR(parseFloat(rec.approved_minutes || 0) * ratePerPage)}
+                            <span className="text-[12px] text-slate-400 font-semibold block font-mono">
+                              ≈ {toINR(earnedUsd)}
                             </span>
                           </>
                         )}
                         {rec.status === 'pending' && (
-                          <span className="text-[10px] text-amber-400/80 font-bold block mt-1 font-mono">
-                            ~${((rec.pages_recorded || 1) * ratePerPage).toFixed(2)} if approved
-                          </span>
+                          <>
+                            <span className="text-sm text-amber-400 font-extrabold block mt-1.5 font-mono">
+                              ~${estimateUsd.toFixed(2)}
+                            </span>
+                            <span className="text-[12px] text-slate-400 font-semibold block font-mono">
+                              ≈ {toINR(estimateUsd)} if approved
+                            </span>
+                          </>
                         )}
                       </div>
                     </div>
-                  ))
+                    );
+                  })
                 )}
               </div>
             </div>
 
             {/* Withdrawals */}
             <div className="space-y-3">
-              <h3 className="text-sm font-black uppercase tracking-wider text-slate-500">Your Cashouts</h3>
-              <div className="space-y-2">
+              <h3 className="text-[13px] font-black uppercase tracking-wider text-slate-400">Your Cashouts</h3>
+              <div className="space-y-2.5">
                 {withdrawals.length === 0 ? (
-                  <p className="text-xs text-slate-600 italic text-center py-4">No cashouts requested yet.</p>
+                  <p className="text-sm text-slate-500 italic text-center py-6">No cashouts requested yet.</p>
                 ) : (
                   withdrawals.map((w) => (
-                    <div key={w.id} className="bg-slate-900/30 p-4 rounded-xl border border-slate-900 flex items-center justify-between text-sm">
-                      <div>
-                        <span className="font-extrabold text-white">${parseFloat(w.amount).toFixed(2)}</span>
-                        <span className="text-[10px] text-slate-500 font-bold font-mono ml-1.5">
+                    <div key={w.id} className="bg-slate-900/30 p-4 rounded-2xl border border-slate-900 flex items-center justify-between gap-3">
+                      <div className="min-w-0">
+                        <span className="font-extrabold text-white text-base">${parseFloat(w.amount).toFixed(2)}</span>
+                        <span className="text-[12px] text-slate-400 font-semibold font-mono ml-1.5">
                           ≈ {toINR(w.amount)}
                         </span>
-                        <span className="text-[10px] text-slate-500 block font-mono truncate max-w-[180px] mt-0.5">
+                        <span className="text-[11px] text-slate-500 block font-mono truncate mt-1">
                           {w.polygon_address}
                         </span>
                       </div>
-                      <span className={`px-2.5 py-1 rounded-full font-black text-[9px] uppercase border ${
+                      <span className={`px-3 py-1 rounded-full font-black text-[11px] uppercase border shrink-0 ${
                         w.status === 'approved' ? 'bg-emerald-950/20 text-emerald-400 border-emerald-900/30' :
                         w.status === 'rejected' ? 'bg-red-950/20 text-red-400 border-red-900/30' :
                         'bg-amber-950/20 text-amber-400 border-amber-900/30'
