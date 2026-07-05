@@ -58,6 +58,26 @@ export default async function handler(req, res) {
     if (req.method === 'GET') {
       const { bookId } = req.query;
 
+      // Single-book view (recording studio): fetch only this book, its pages and
+      // this reader's saved page — in parallel — and include current_page so the
+      // client needs just this one request (no second /api/books round-trip).
+      if (bookId) {
+        const id = parseInt(bookId);
+        const [bookRes, pagesRes, progRes] = await Promise.all([
+          supabase.from('books').select('*').eq('id', id).maybeSingle(),
+          supabase.from('book_pages').select('*').eq('book_id', id).order('page_number', { ascending: true }),
+          supabase.from('user_book_progress').select('current_page').eq('user_id', user.id).eq('book_id', id).maybeSingle()
+        ]);
+        if (bookRes.error) throw bookRes.error;
+        if (pagesRes.error) throw pagesRes.error;
+        if (!bookRes.data) return res.status(404).json({ error: 'Book not found' });
+        return res.status(200).json({
+          book: { ...bookRes.data, current_page: progRes.data?.current_page || 1 },
+          pages: pagesRes.data || []
+        });
+      }
+
+      // Library list view: all books merged with this user's progress.
       const { data: books, error: booksError } = await supabase
         .from('books')
         .select('*')
@@ -65,35 +85,17 @@ export default async function handler(req, res) {
 
       if (booksError) throw booksError;
 
-      let progressMap = {};
-      const { data: progress, error: progressError } = await supabase
+      const progressMap = {};
+      const { data: progress } = await supabase
         .from('user_book_progress')
         .select('*')
         .eq('user_id', user.id);
+      (progress || []).forEach((p) => { progressMap[p.book_id] = p.current_page; });
 
-      if (!progressError && progress) {
-        progress.forEach(p => {
-          progressMap[p.book_id] = p.current_page;
-        });
-      }
-
-      const booksWithProgress = books.map(book => ({
+      return res.status(200).json(books.map((book) => ({
         ...book,
         current_page: progressMap[book.id] || 1
-      }));
-
-      if (bookId) {
-        const { data: pages, error: pagesError } = await supabase
-          .from('book_pages')
-          .select('*')
-          .eq('book_id', parseInt(bookId))
-          .order('page_number', { ascending: true });
-
-        if (pagesError) throw pagesError;
-        return res.status(200).json({ book: books.find(b => b.id == bookId), pages });
-      }
-
-      return res.status(200).json(booksWithProgress);
+      })));
     }
 
     if (req.method === 'POST') {

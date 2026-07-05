@@ -35,6 +35,8 @@ export default function RecordingStudio() {
   // Modals
   const [showInstructions, setShowInstructions] = useState(false);
   const [showCancelModal, setShowCancelModal] = useState(false);
+  // Instructions are shown once per session; after that "Start" records directly.
+  const [instructionsAck, setInstructionsAck] = useState(false);
 
   // Reading guide + auto-scroll
   const [activeSentence, setActiveSentence] = useState(0);
@@ -74,24 +76,15 @@ export default function RecordingStudio() {
       try {
         setLoading(true);
         const headers = { Authorization: `Bearer ${session.access_token}` };
-        // Load the book+pages and the progress list concurrently.
-        const [res, booksRes] = await Promise.all([
-          fetch(`/api/books?bookId=${bookId}`, { headers }),
-          fetch('/api/books', { headers })
-        ]);
+        // A single request returns the book, its pages, and the saved page.
+        const res = await fetch(`/api/books?bookId=${bookId}`, { headers });
         if (!res.ok) throw new Error('Failed to load book');
         const data = await res.json();
         setBook(data.book);
         setPages(data.pages);
 
-        if (booksRes.ok) {
-          const booksData = await booksRes.json();
-          const currentBook = booksData.find((b) => b.id == bookId);
-          if (currentBook) {
-            const idx = data.pages.findIndex((p) => p.page_number === (currentBook.current_page || 1));
-            setCurrentPageIdx(idx >= 0 ? idx : 0);
-          }
-        }
+        const idx = data.pages.findIndex((p) => p.page_number === (data.book?.current_page || 1));
+        setCurrentPageIdx(idx >= 0 ? idx : 0);
       } catch (err) {
         console.error('Error loading book details:', err);
       } finally {
@@ -261,7 +254,9 @@ export default function RecordingStudio() {
   // "Start" opens the instructions modal first; beginRecording runs on confirm.
   const beginRecording = async () => {
     setShowInstructions(false);
+    setInstructionsAck(true);
     setAudioBlob(null);
+    if (audioUrl) URL.revokeObjectURL(audioUrl);
     setAudioUrl('');
     setRecordingSeconds(0);
     setUploadSuccess(false);
@@ -396,7 +391,25 @@ export default function RecordingStudio() {
 
       setUploadSuccess(true);
       setIsUploading(false);
-      setTimeout(() => navigate('/dashboard'), 2000);
+
+      const nextIdx = currentPageIdx + 1;
+      if (nextIdx < pages.length) {
+        // Auto-advance to the next page so contributors read straight through
+        // the book instead of re-recording the page they just finished.
+        setTimeout(() => {
+          handlePageChange(nextIdx);
+          setAudioBlob(null);
+          if (audioUrl) URL.revokeObjectURL(audioUrl);
+          setAudioUrl('');
+          setRecordingSeconds(0);
+          setUploadSuccess(false);
+          setUploadError('');
+          sessionStartPageIdxRef.current = nextIdx;
+        }, 1200);
+      } else {
+        // Finished the final page — head back to the dashboard.
+        setTimeout(() => navigate('/dashboard'), 1600);
+      }
     } catch (err) {
       console.error('Upload failed:', err);
       setUploadError(err.message || 'Network error during submission. Please try again.');
@@ -557,7 +570,12 @@ export default function RecordingStudio() {
         )}
         {uploadSuccess && (
           <div className="p-3 bg-emerald-950/40 border border-emerald-500/30 rounded-xl flex items-center space-x-2 text-xs text-emerald-300">
-            <CheckCircle className="w-4 h-4 shrink-0" /><span>Recording submitted for review! Redirecting…</span>
+            <CheckCircle className="w-4 h-4 shrink-0" />
+            <span>
+              {currentPageIdx < pages.length - 1
+                ? `Page ${currentPageIdx + 1} submitted! Opening page ${currentPageIdx + 2}…`
+                : 'Final page submitted! Returning to your dashboard…'}
+            </span>
           </div>
         )}
 
@@ -576,8 +594,8 @@ export default function RecordingStudio() {
 
         {/* Controls */}
         {!isRecording && !audioUrl && (
-          <button onClick={() => setShowInstructions(true)} disabled={!micPermissionGranted || isUploading} className="w-full py-3.5 bg-red-600 hover:bg-red-700 disabled:bg-slate-800 disabled:text-slate-600 text-white font-black uppercase tracking-wider text-sm rounded-2xl flex items-center justify-center space-x-2 shadow-lg shadow-red-900/20">
-            <Mic className="w-4 h-4" /><span>Start Recording</span>
+          <button onClick={() => (instructionsAck ? beginRecording() : setShowInstructions(true))} disabled={!micPermissionGranted || isUploading} className="w-full py-4 bg-red-600 hover:bg-red-700 disabled:bg-slate-800 disabled:text-slate-600 text-white font-black uppercase tracking-wider text-base rounded-2xl flex items-center justify-center space-x-2 shadow-lg shadow-red-900/20">
+            <Mic className="w-5 h-5" /><span>Record page {currentPageIdx + 1}</span>
           </button>
         )}
 

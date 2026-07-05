@@ -12,8 +12,8 @@ export default function AdminDashboard() {
   const [activeTab, setActiveTab] = useState('approvals');
   const [loading, setLoading] = useState(true);
 
-  // Registration approvals
-  const [pendingUsers, setPendingUsers] = useState([]);
+  // Registration approvals. pendingUsers is derived from allUsers (below) rather
+  // than fetched separately — one fewer serverless call per load.
   const [allUsers, setAllUsers] = useState([]);
   const [approvalError, setApprovalError] = useState('');
 
@@ -65,8 +65,7 @@ export default function AdminDashboard() {
       setLoading(true);
       const headers = authHeaders();
 
-      const [regRes, allRes, booksRes, recRes, wRes, sRes, exRes] = await Promise.all([
-        fetch('/api/registrations?status=pending', { headers }),
+      const [allRes, booksRes, recRes, wRes, sRes, exRes] = await Promise.all([
         fetch('/api/registrations', { headers }),
         fetch('/api/books', { headers }),
         fetch('/api/recordings?admin=true', { headers }),
@@ -75,7 +74,6 @@ export default function AdminDashboard() {
         fetch('/api/exchange-rate')
       ]);
 
-      if (regRes.ok) setPendingUsers(await regRes.json());
       if (allRes.ok) setAllUsers(await allRes.json());
       if (booksRes.ok) setBooks(await booksRes.json());
       if (recRes.ok) setRecordings(await recRes.json());
@@ -240,6 +238,8 @@ export default function AdminDashboard() {
       setWithdrawError(err.message);
     }
   };
+
+  const pendingUsers = allUsers.filter((u) => u.status === 'pending');
 
   const tabs = [
     { id: 'approvals', label: `Approvals (${pendingUsers.length})` },
