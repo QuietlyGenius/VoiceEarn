@@ -29,9 +29,16 @@ export default async function handler(req, res) {
 
     let result;
     if (existing) {
+      // Monotonic: a bookmark only ever moves forward. This guarantees an
+      // accidental open-at-page-1 (or any lower page) can never wipe a reader's
+      // real progress by overwriting it with a smaller number.
+      const nextPage = Math.max(
+        parseInt(existing.current_page, 10) || 0,
+        parseInt(current_page, 10) || 0
+      );
       const { data, error } = await supabase
         .from('user_book_progress')
-        .update({ current_page, updated_at: new Date() })
+        .update({ current_page: nextPage, updated_at: new Date() })
         .eq('id', existing.id)
         .select()
         .single();

@@ -66,13 +66,17 @@ export default async function handler(req, res) {
         const [bookRes, pagesRes, progRes] = await Promise.all([
           supabase.from('books').select('*').eq('id', id).maybeSingle(),
           supabase.from('book_pages').select('*').eq('book_id', id).order('page_number', { ascending: true }),
-          supabase.from('user_book_progress').select('current_page').eq('user_id', user.id).eq('book_id', id).maybeSingle()
+          // No maybeSingle: if duplicate progress rows ever exist, maybeSingle
+          // errors and we'd silently fall back to page 1 (which then gets
+          // written back, wiping progress). Take the furthest page instead.
+          supabase.from('user_book_progress').select('current_page').eq('user_id', user.id).eq('book_id', id)
         ]);
         if (bookRes.error) throw bookRes.error;
         if (pagesRes.error) throw pagesRes.error;
         if (!bookRes.data) return res.status(404).json({ error: 'Book not found' });
+        const savedPage = Math.max(1, ...(progRes.data || []).map((r) => parseInt(r.current_page, 10) || 1));
         return res.status(200).json({
-          book: { ...bookRes.data, current_page: progRes.data?.current_page || 1 },
+          book: { ...bookRes.data, current_page: savedPage },
           pages: pagesRes.data || []
         });
       }
@@ -90,7 +94,10 @@ export default async function handler(req, res) {
         .from('user_book_progress')
         .select('*')
         .eq('user_id', user.id);
-      (progress || []).forEach((p) => { progressMap[p.book_id] = p.current_page; });
+      (progress || []).forEach((p) => {
+        const pg = parseInt(p.current_page, 10) || 1;
+        progressMap[p.book_id] = Math.max(progressMap[p.book_id] || 1, pg);
+      });
 
       return res.status(200).json(books.map((book) => ({
         ...book,
