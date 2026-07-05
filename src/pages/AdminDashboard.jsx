@@ -47,7 +47,17 @@ export default function AdminDashboard() {
   const [settingsError, setSettingsError] = useState('');
   const [savingSettings, setSavingSettings] = useState(false);
 
+  // USD→INR for showing local-currency amounts alongside dollar figures.
+  const [exchangeRate, setExchangeRate] = useState(83.5);
+
   const authHeaders = () => ({ Authorization: `Bearer ${session.access_token}` });
+
+  const toINR = (usd) =>
+    (parseFloat(usd || 0) * exchangeRate).toLocaleString('en-IN', {
+      maximumFractionDigits: 2,
+      style: 'currency',
+      currency: 'INR'
+    });
 
   const fetchData = async () => {
     if (!session) return;
@@ -55,13 +65,14 @@ export default function AdminDashboard() {
       setLoading(true);
       const headers = authHeaders();
 
-      const [regRes, allRes, booksRes, recRes, wRes, sRes] = await Promise.all([
+      const [regRes, allRes, booksRes, recRes, wRes, sRes, exRes] = await Promise.all([
         fetch('/api/registrations?status=pending', { headers }),
         fetch('/api/registrations', { headers }),
         fetch('/api/books', { headers }),
         fetch('/api/recordings?admin=true', { headers }),
         fetch('/api/withdrawals?admin=true', { headers }),
-        fetch('/api/settings', { headers })
+        fetch('/api/settings', { headers }),
+        fetch('/api/exchange-rate')
       ]);
 
       if (regRes.ok) setPendingUsers(await regRes.json());
@@ -69,6 +80,7 @@ export default function AdminDashboard() {
       if (booksRes.ok) setBooks(await booksRes.json());
       if (recRes.ok) setRecordings(await recRes.json());
       if (wRes.ok) setWithdrawals(await wRes.json());
+      if (exRes.ok) setExchangeRate((await exRes.json()).rate);
       if (sRes.ok) {
         const sData = await sRes.json();
         const get = (k) => sData.find((s) => s.key === k)?.value;
@@ -510,6 +522,7 @@ export default function AdminDashboard() {
               ) : (
                 recordings.filter((r) => r.status === 'pending').map((rec) => {
                   const currentPages = partialPages[rec.id] ?? String(rec.pages_recorded || 1);
+                  const payoutUsd = (parseFloat(currentPages) || 0) * (parseFloat(ratePerPage) || 0);
                   return (
                     <div key={rec.id} className="bg-slate-900/30 rounded-2xl p-4.5 border border-slate-900 space-y-3">
                       <div className="flex justify-between items-start">
@@ -534,6 +547,13 @@ export default function AdminDashboard() {
                         <div className="flex items-center justify-between space-x-2">
                           <label className="text-[9px] font-black text-slate-500 uppercase tracking-wider">Approved pages (${ratePerPage}/page)</label>
                           <input type="number" min="0" step="1" value={currentPages} onChange={(e) => setPartialPages({ ...partialPages, [rec.id]: e.target.value })} className="w-16 px-2 py-1 bg-slate-950 border border-slate-800 rounded text-xs text-center font-bold text-white" />
+                        </div>
+                        <div className="flex items-center justify-between bg-slate-950/60 rounded-lg px-3 py-2 border border-slate-900">
+                          <span className="text-[9px] font-black text-slate-500 uppercase tracking-wider">Payout on approve</span>
+                          <span className="text-right">
+                            <span className="text-sm font-black text-emerald-400 block leading-none">${payoutUsd.toFixed(2)}</span>
+                            <span className="text-[10px] font-bold text-slate-500 font-mono">≈ {toINR(payoutUsd)}</span>
+                          </span>
                         </div>
                         <div className="grid grid-cols-3 gap-2">
                           <button onClick={() => handleReviewRecording(rec.id, 'rejected', 0)} className="py-2 bg-red-950/20 text-red-400 hover:bg-red-950/30 border border-red-950/30 text-[10px] font-black rounded-lg uppercase tracking-wider">Reject</button>
@@ -567,6 +587,7 @@ export default function AdminDashboard() {
                     <div className="flex justify-between items-start">
                       <div>
                         <span className="font-extrabold text-white text-base block">${parseFloat(w.amount).toFixed(2)} USD</span>
+                        <span className="text-[10px] text-slate-400 block font-mono">≈ {toINR(w.amount)}</span>
                         <span className="text-[10px] text-indigo-400 block font-mono mt-0.5">{w.profiles?.email}</span>
                       </div>
                       <span className="text-[9px] font-black bg-slate-950 px-2.5 py-1 rounded text-slate-400 border border-slate-800 tracking-wider">POLYGON</span>

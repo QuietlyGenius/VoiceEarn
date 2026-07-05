@@ -271,12 +271,23 @@ export default function RecordingStudio() {
     sessionStartPageIdxRef.current = currentPageIdx;
 
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      // Voice-optimised capture: mono + browser DSP (echo cancel / noise
+      // suppression / auto gain) gives clean speech at a fraction of the size.
+      const stream = await navigator.mediaDevices.getUserMedia({
+        audio: {
+          channelCount: 1,
+          echoCancellation: true,
+          noiseSuppression: true,
+          autoGainControl: true
+        }
+      });
       setMicPermissionGranted(true);
       startVisualizer(stream);
 
-      let options = { mimeType: 'audio/webm' };
-      if (!MediaRecorder.isTypeSupported('audio/webm')) options = { mimeType: 'audio/ogg' };
+      // Opus at 48 kbps mono is transparent for spoken voice yet ~4-5x smaller
+      // than the browser default (which was producing ~2.5 MB for 2 minutes).
+      let options = { mimeType: 'audio/webm', audioBitsPerSecond: 48000 };
+      if (!MediaRecorder.isTypeSupported('audio/webm')) options = { mimeType: 'audio/ogg', audioBitsPerSecond: 48000 };
       const recorder = new MediaRecorder(stream, options);
       mediaRecorderRef.current = recorder;
 
@@ -401,7 +412,7 @@ export default function RecordingStudio() {
 
   if (loading) {
     return (
-      <div className="flex flex-col items-center justify-center min-h-screen bg-slate-950">
+      <div className="flex flex-col items-center justify-center min-h-dvh bg-slate-950">
         <div className="w-12 h-12 border-4 border-indigo-500 border-t-transparent rounded-full animate-spin" />
         <p className="mt-4 text-slate-400 font-medium text-sm">Preparing your reading room…</p>
       </div>
@@ -418,24 +429,25 @@ export default function RecordingStudio() {
   const activeBg = themeMode === 'sepia' ? 'bg-amber-500/25' : themeMode === 'light' ? 'bg-indigo-500/15' : 'bg-indigo-500/25';
 
   return (
-    <div className={`h-screen flex flex-col overflow-hidden ${themeClasses[themeMode]}`}>
+    <div className={`h-dvh flex flex-col overflow-hidden ${themeClasses[themeMode]}`}>
       {/* Header */}
       <header className="bg-slate-900 border-b border-slate-800/80 px-4 py-3 shrink-0 flex items-center justify-between">
-        <div className="flex items-center space-x-2.5 min-w-0">
-          <button onClick={requestCancel} className="p-1.5 text-slate-400 hover:text-white rounded-lg hover:bg-slate-800 shrink-0">
+        <div className="flex items-center space-x-2 min-w-0">
+          <button onClick={requestCancel} aria-label="Back to dashboard" className="flex items-center space-x-1 pl-1.5 pr-2.5 py-2 text-slate-300 hover:text-white rounded-xl bg-slate-800/70 hover:bg-slate-800 border border-slate-700/60 shrink-0">
             <ArrowLeft className="w-5 h-5" />
+            <span className="text-[11px] font-bold">Back</span>
           </button>
           <div className="min-w-0">
             <span className="text-[9px] uppercase font-black text-indigo-400 block tracking-widest font-mono">Reading Room</span>
             <span className="font-extrabold text-sm truncate block text-white">{book?.title}</span>
           </div>
         </div>
-        <div className="flex items-center space-x-2 shrink-0">
-          <button onClick={() => setThemeMode((p) => (p === 'dark' ? 'sepia' : p === 'sepia' ? 'light' : 'dark'))} className="p-1.5 text-slate-400 hover:text-white rounded-lg hover:bg-slate-800" title="Toggle theme">
-            <Palette className="w-4 h-4" />
+        <div className="flex items-center space-x-1.5 shrink-0">
+          <button onClick={() => setThemeMode((p) => (p === 'dark' ? 'sepia' : p === 'sepia' ? 'light' : 'dark'))} className="p-2.5 text-slate-400 hover:text-white rounded-xl hover:bg-slate-800" title="Toggle theme">
+            <Palette className="w-5 h-5" />
           </button>
-          <button onClick={() => setFontSize((p) => (p === 'text-lg' ? 'text-xl' : p === 'text-xl' ? 'text-2xl' : p === 'text-2xl' ? 'text-3xl' : 'text-lg'))} className="p-1.5 text-slate-400 hover:text-white rounded-lg hover:bg-slate-800" title="Font size">
-            <Type className="w-4 h-4" />
+          <button onClick={() => setFontSize((p) => (p === 'text-lg' ? 'text-xl' : p === 'text-xl' ? 'text-2xl' : p === 'text-2xl' ? 'text-3xl' : 'text-lg'))} className="p-2.5 text-slate-400 hover:text-white rounded-xl hover:bg-slate-800" title="Font size">
+            <Type className="w-5 h-5" />
           </button>
           <span className="bg-indigo-950 text-indigo-300 text-[9px] font-black px-2.5 py-1 rounded-md border border-indigo-900 uppercase font-mono whitespace-nowrap">
             {currentPageIdx + 1}/{pages.length}
@@ -590,19 +602,23 @@ export default function RecordingStudio() {
         )}
 
         {audioUrl && !isRecording && (
-          <div className="space-y-2.5">
-            <div className="bg-slate-950 p-2 rounded-xl border border-slate-800">
-              <audio src={audioUrl} controls className="w-full h-8" />
+          <div className="space-y-3">
+            <div className="flex items-center justify-center space-x-1.5">
+              <CheckCircle className="w-4 h-4 text-emerald-400" />
+              <span className="text-xs font-black uppercase tracking-wider text-emerald-400">Recording ready — review &amp; submit</span>
             </div>
-            <div className="flex space-x-2.5">
-              <button onClick={requestCancel} disabled={isUploading} className="flex-1 py-3 bg-slate-800 hover:bg-slate-700 text-slate-300 font-semibold text-xs rounded-xl flex items-center justify-center space-x-1 border border-slate-700">
-                <X className="w-3.5 h-3.5" /><span>Discard</span>
+            <div className="bg-slate-950 p-2.5 rounded-xl border border-slate-800">
+              <audio src={audioUrl} controls className="w-full" />
+            </div>
+            <div className="grid grid-cols-3 gap-2.5">
+              <button onClick={requestCancel} disabled={isUploading} className="py-4 bg-slate-800 hover:bg-slate-700 disabled:opacity-50 text-slate-200 font-black uppercase tracking-wider text-xs rounded-2xl flex items-center justify-center space-x-1.5 border border-slate-700">
+                <Trash2 className="w-4 h-4" /><span>Discard</span>
               </button>
-              <button onClick={uploadRecording} disabled={isUploading} className="flex-1 py-3 bg-indigo-600 hover:bg-indigo-500 text-white font-bold text-xs rounded-xl flex items-center justify-center space-x-1">
+              <button onClick={uploadRecording} disabled={isUploading} className="col-span-2 py-4 bg-emerald-600 hover:bg-emerald-500 disabled:opacity-60 text-white font-black uppercase tracking-wider text-sm rounded-2xl flex items-center justify-center space-x-2 shadow-lg shadow-emerald-900/30">
                 {isUploading ? (
-                  <><span className="w-3.5 h-3.5 border-2 border-white border-t-transparent rounded-full animate-spin" /><span>Uploading…</span></>
+                  <><span className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" /><span>Submitting…</span></>
                 ) : (
-                  <><CheckCircle className="w-3.5 h-3.5" /><span>Submit</span></>
+                  <><CheckCircle className="w-5 h-5" /><span>Submit for review</span></>
                 )}
               </button>
             </div>

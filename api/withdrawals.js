@@ -1,6 +1,21 @@
 import supabase from './db-client.js';
 import { isAdminEmail as isAdmin } from '../src/lib/adminEmails.js';
 
+// See recordings.js — profiles can't be embedded via PostgREST here because
+// withdrawals.user_id and profiles.id both reference auth.users(id) with no
+// direct FK between the tables. Fetch and merge in JS instead.
+async function attachProfiles(rows) {
+  if (!rows || rows.length === 0) return rows || [];
+  const ids = [...new Set(rows.map((r) => r.user_id).filter(Boolean))];
+  if (ids.length === 0) return rows;
+  const { data: profiles } = await supabase
+    .from('profiles')
+    .select('id, email, wallet_balance_usd')
+    .in('id', ids);
+  const map = new Map((profiles || []).map((p) => [p.id, p]));
+  return rows.map((r) => ({ ...r, profiles: map.get(r.user_id) || r.profiles || null }));
+}
+
 export default async function handler(req, res) {
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, OPTIONS');
@@ -25,14 +40,11 @@ export default async function handler(req, res) {
 
         const { data: withdrawals, error: wError } = await supabase
           .from('withdrawals')
-          .select(`
-            *,
-            profiles:user_id (email, wallet_balance_usd)
-          `)
+          .select('*')
           .order('created_at', { ascending: false });
 
         if (wError) throw wError;
-        return res.status(200).json(withdrawals);
+        return res.status(200).json(await attachProfiles(withdrawals));
       } else {
         // Return only the current user's withdrawals
         const { data: withdrawals, error: wError } = await supabase

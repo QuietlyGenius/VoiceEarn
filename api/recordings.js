@@ -1,6 +1,24 @@
 import supabase from './db-client.js';
 import { isAdminEmail as isAdmin } from '../src/lib/adminEmails.js';
 
+// Attach uploader profile info without relying on a PostgREST embed.
+// recordings.user_id and profiles.id both reference auth.users(id), so there is
+// no direct foreign key between recordings and profiles — an embed like
+// `profiles:user_id (...)` fails on the live schema and 500s the whole query
+// (which is why the admin queue looked empty). Fetch profiles separately and
+// merge in JS so this works regardless of how the FKs are set up.
+async function attachProfiles(rows) {
+  if (!rows || rows.length === 0) return rows || [];
+  const ids = [...new Set(rows.map((r) => r.user_id).filter(Boolean))];
+  if (ids.length === 0) return rows;
+  const { data: profiles } = await supabase
+    .from('profiles')
+    .select('id, email, wallet_balance_usd')
+    .in('id', ids);
+  const map = new Map((profiles || []).map((p) => [p.id, p]));
+  return rows.map((r) => ({ ...r, profiles: map.get(r.user_id) || r.profiles || null }));
+}
+
 export default async function handler(req, res) {
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, OPTIONS');
@@ -27,13 +45,12 @@ export default async function handler(req, res) {
           .from('recordings')
           .select(`
             *,
-            books (title),
-            profiles:user_id (email, wallet_balance_usd)
+            books (title)
           `)
           .order('created_at', { ascending: false });
 
         if (recError) throw recError;
-        return res.status(200).json(recordings);
+        return res.status(200).json(await attachProfiles(recordings));
       } else {
         // Return only the current user's recordings
         const { data: recordings, error: recError } = await supabase

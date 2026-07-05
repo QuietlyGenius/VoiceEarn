@@ -85,6 +85,11 @@ if (isMockMode) {
               builder.data = builder.data.filter(r => r[col] == val);
               return builder;
             },
+            in: (col, vals) => {
+              const set = (vals || []).map(String);
+              builder.data = builder.data.filter(r => set.includes(String(r[col])));
+              return builder;
+            },
             order: (col, opts) => {
               const asc = opts?.ascending !== false;
               builder.data.sort((a, b) => {
