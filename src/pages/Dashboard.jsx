@@ -5,7 +5,7 @@ import {
   Wallet, Headphones, BookOpen, Clock, CheckCircle, 
   ArrowRight, ShieldAlert, Coins, ArrowUpRight, Check, AlertTriangle,
   History, User, LogOut, Search, ChevronRight, CheckSquare, X,
-  TrendingUp, Award, Activity, Zap, Mic
+  TrendingUp, Award, Activity, Zap, Mic, Lock
 } from 'lucide-react';
 import { isAdminEmail } from '../lib/adminEmails';
 
@@ -162,7 +162,32 @@ export default function Dashboard() {
     );
   }
 
-  const filteredBooks = books.filter(b => 
+  // Books are read in the order they were uploaded (the API returns them
+  // id-ascending). A book stays LOCKED until every earlier book is completed.
+  // A book is "completed" when its bookmark has moved past the last page
+  // (current_page > total_pages, written when the final page is submitted).
+  let blockingTitle = null;
+  const booksWithState = books.map((book) => {
+    const total = book.total_pages || 1;
+    const cp = book.current_page || 1;
+    const done = cp > total;
+    const locked = blockingTitle !== null;
+    const lockedBy = blockingTitle;
+    if (!done && !blockingTitle) blockingTitle = book.title;
+    const pagesDone = done ? total : Math.max(0, cp - 1);
+    return {
+      ...book,
+      total,
+      done,
+      locked,
+      lockedBy,
+      pagesDone,
+      nextPage: Math.min(cp, total),
+      pct: Math.round((pagesDone / total) * 100)
+    };
+  });
+
+  const filteredBooks = booksWithState.filter(b =>
     b.title.toLowerCase().includes(searchQuery.toLowerCase())
   );
 
@@ -311,57 +336,96 @@ export default function Dashboard() {
                   No books match your search.
                 </div>
               ) : (
-                filteredBooks.map((book) => {
-                  const progressPct = Math.round((book.current_page / book.total_pages) * 100);
-                  return (
-                    <div 
-                      key={book.id}
-                      className="bg-slate-900/30 rounded-2xl p-4.5 border border-slate-900 hover:border-slate-800 transition-all flex flex-col space-y-3.5"
-                    >
-                      <div className="flex justify-between items-start">
-                        <div>
-                          <h4 className="font-extrabold text-base text-white">{book.title}</h4>
-                          <div className="flex items-center space-x-3 mt-1 text-[11px] text-slate-500 font-bold uppercase tracking-wider">
-                            <span className="flex items-center space-x-1">
-                              <BookOpen className="w-3.5 h-3.5 text-indigo-400" />
-                              <span>{book.total_pages} pages</span>
-                            </span>
-                          </div>
+                filteredBooks.map((book) => (
+                  book.locked ? (
+                    /* LOCKED — blurred with a clear "finish the previous book" message */
+                    <div key={book.id} className="relative rounded-2xl border border-slate-900 overflow-hidden">
+                      <div className="p-5 blur-[2.5px] opacity-40 select-none pointer-events-none">
+                        <h4 className="font-extrabold text-lg text-white">{book.title}</h4>
+                        <p className="text-xs text-slate-500 font-bold mt-1">{book.total} pages</p>
+                        <div className="w-full bg-slate-950 rounded-full h-2.5 mt-5 border border-slate-900" />
+                      </div>
+                      <div className="absolute inset-0 flex flex-col items-center justify-center text-center px-6 bg-slate-950/55">
+                        <div className="w-11 h-11 rounded-full bg-slate-800 border border-slate-700 flex items-center justify-center mb-2.5">
+                          <Lock className="w-5 h-5 text-slate-300" />
                         </div>
-                        <span className="text-right">
-                          <span className="text-[10px] font-black text-emerald-400 bg-emerald-950/20 px-2.5 py-1 rounded-lg border border-emerald-900/30 block">
-                            +${(book.total_pages * ratePerPage).toFixed(2)}
+                        <p className="text-sm font-black text-slate-100 uppercase tracking-wide">Locked</p>
+                        <p className="text-[12px] text-slate-400 mt-1 leading-snug">
+                          Finish <span className="text-slate-200 font-bold">"{book.lockedBy}"</span> first to unlock this book.
+                        </p>
+                      </div>
+                    </div>
+                  ) : (
+                    /* UNLOCKED — plain-language progress + clear next action */
+                    <div key={book.id} className="bg-slate-900/30 rounded-2xl p-5 border border-slate-900 space-y-4">
+                      <div className="flex justify-between items-start gap-3">
+                        <div className="min-w-0">
+                          <h4 className="font-extrabold text-lg text-white leading-tight">{book.title}</h4>
+                          <span className="text-[12px] text-slate-500 font-semibold">{book.total} pages total</span>
+                        </div>
+                        {book.done ? (
+                          <span className="shrink-0 text-[11px] font-black uppercase px-3 py-1.5 rounded-full bg-emerald-950/30 text-emerald-400 border border-emerald-900/40 flex items-center gap-1">
+                            <CheckCircle className="w-3.5 h-3.5" /> Done
                           </span>
-                          <span className="text-[9px] font-bold text-slate-500 block mt-1">
-                            ≈ {toINR(book.total_pages * ratePerPage)}
+                        ) : book.pagesDone === 0 ? (
+                          <span className="shrink-0 text-[11px] font-black uppercase px-3 py-1.5 rounded-full bg-slate-800 text-slate-300 border border-slate-700">New</span>
+                        ) : (
+                          <span className="shrink-0 text-[11px] font-black uppercase px-3 py-1.5 rounded-full bg-indigo-950/30 text-indigo-300 border border-indigo-900/40">In progress</span>
+                        )}
+                      </div>
+
+                      {/* Big, plain progress read-out */}
+                      <div className="space-y-2">
+                        <div className="flex items-end justify-between">
+                          <span className="text-2xl font-black text-white leading-none">
+                            {book.pagesDone}<span className="text-slate-500 text-base font-bold"> / {book.total}</span>
                           </span>
+                          <span className="text-[12px] font-bold text-slate-400">pages recorded</span>
+                        </div>
+                        <div className="w-full bg-slate-950 rounded-full h-2.5 overflow-hidden border border-slate-900">
+                          <div className="bg-gradient-to-r from-indigo-500 to-emerald-500 h-full rounded-full transition-all duration-300" style={{ width: `${book.pct}%` }} />
+                        </div>
+                        {book.done ? (
+                          <p className="text-[13px] text-emerald-400 font-bold">🎉 All pages recorded — this book is complete!</p>
+                        ) : (
+                          <p className="text-[13px] text-amber-300 font-bold flex items-center gap-1.5">
+                            <Mic className="w-3.5 h-3.5 shrink-0" />
+                            {book.pagesDone === 0
+                              ? `Not started yet — record page 1 to begin`
+                              : `Next: record page ${book.nextPage} of ${book.total}`}
+                          </p>
+                        )}
+                      </div>
+
+                      {/* Earnings */}
+                      <div className="flex items-center justify-between text-[12px] bg-slate-950/40 rounded-lg px-3 py-2 border border-slate-900">
+                        <span className="text-slate-500 font-bold uppercase tracking-wider text-[10px]">Earn up to</span>
+                        <span className="text-emerald-400 font-black">
+                          +${(book.total * ratePerPage).toFixed(2)}
+                          <span className="text-slate-500 font-semibold ml-1">≈ {toINR(book.total * ratePerPage)}</span>
                         </span>
                       </div>
 
-                      {/* Progress Bar */}
-                      <div className="space-y-1.5">
-                        <div className="flex justify-between text-[10px] text-slate-500 font-bold uppercase">
-                          <span>Reading Progress</span>
-                          <span>{progressPct}% (Page {book.current_page}/{book.total_pages})</span>
-                        </div>
-                        <div className="w-full bg-slate-950 rounded-full h-1.5 overflow-hidden border border-slate-900">
-                          <div 
-                            className="bg-gradient-to-r from-indigo-500 to-violet-600 h-1.5 rounded-full transition-all duration-300"
-                            style={{ width: `${progressPct}%` }}
-                          ></div>
-                        </div>
-                      </div>
-
-                      <button
-                        onClick={() => navigate(`/record/${book.id}`)}
-                        className="w-full bg-indigo-600 hover:bg-indigo-500 text-white font-black uppercase tracking-wider text-sm py-3 rounded-xl flex items-center justify-center space-x-1 transition-all"
-                      >
-                        <span>Start Recording</span>
-                        <ArrowRight className="w-3.5 h-3.5" />
-                      </button>
+                      {/* Call to action */}
+                      {book.done ? (
+                        <button
+                          onClick={() => navigate(`/record/${book.id}`)}
+                          className="w-full bg-slate-800 hover:bg-slate-700 text-slate-300 font-bold text-sm py-3 rounded-xl border border-slate-700 transition-all"
+                        >
+                          Completed — re-record if needed
+                        </button>
+                      ) : (
+                        <button
+                          onClick={() => navigate(`/record/${book.id}`)}
+                          className="w-full bg-indigo-600 hover:bg-indigo-500 text-white font-black uppercase tracking-wider text-sm py-3.5 rounded-xl flex items-center justify-center gap-2 transition-all"
+                        >
+                          <Mic className="w-4 h-4" />
+                          <span>{book.pagesDone === 0 ? 'Start — record page 1' : `Continue — page ${book.nextPage}`}</span>
+                        </button>
+                      )}
                     </div>
-                  );
-                })
+                  )
+                ))
               )}
             </div>
           </div>

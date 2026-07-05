@@ -83,7 +83,11 @@ export default function RecordingStudio() {
         setBook(data.book);
         setPages(data.pages);
 
-        const idx = data.pages.findIndex((p) => p.page_number === (data.book?.current_page || 1));
+        // current_page can be total_pages + 1 (a "completed" bookmark) — clamp
+        // it to the last real page so a finished book reopens on its last page.
+        const cp = data.book?.current_page || 1;
+        const target = Math.min(cp, data.pages.length || 1);
+        const idx = data.pages.findIndex((p) => p.page_number === target);
         setCurrentPageIdx(idx >= 0 ? idx : 0);
       } catch (err) {
         console.error('Error loading book details:', err);
@@ -407,7 +411,15 @@ export default function RecordingStudio() {
           sessionStartPageIdxRef.current = nextIdx;
         }, 1200);
       } else {
-        // Finished the final page — head back to the dashboard.
+        // Finished the final page — mark the book complete (bookmark one past
+        // the last page) so it shows as done and unlocks the next book, then
+        // head back to the dashboard.
+        const lastPageNumber = pages[pages.length - 1]?.page_number || pages.length;
+        fetch('/api/progress', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${session.access_token}` },
+          body: JSON.stringify({ book_id: parseInt(bookId), current_page: lastPageNumber + 1 })
+        }).catch((e) => console.error('Failed to mark book complete:', e));
         setTimeout(() => navigate('/dashboard'), 1600);
       }
     } catch (err) {
