@@ -8,6 +8,19 @@ import {
 import { Link } from 'react-router-dom';
 import { uploadToBucket } from '../lib/uploadFile';
 
+// Preset reasons shown to the admin when rejecting or partially approving a
+// clip. The chosen reason is saved on the recording and shown to the reader.
+const REVIEW_REASONS = [
+  'Duplicate audio',
+  'Audio not clear / muffled',
+  'Background noise / unclean audio',
+  'Skipped or incomplete pages',
+  'Wrong page read',
+  'Not the reader’s own voice',
+  'Too fast / unsteady pace',
+  'Other'
+];
+
 export default function AdminDashboard() {
   const { session } = useAuth();
   const [activeTab, setActiveTab] = useState('approvals');
@@ -34,6 +47,7 @@ export default function AdminDashboard() {
   const [reviewError, setReviewError] = useState('');
   const [reviewSuccess, setReviewSuccess] = useState('');
   const [partialPages, setPartialPages] = useState({});
+  const [reviewReasons, setReviewReasons] = useState({}); // per-recording selected reason
 
   // Withdrawals
   const [withdrawals, setWithdrawals] = useState([]);
@@ -225,17 +239,45 @@ export default function AdminDashboard() {
     }
   };
 
-  const handleReviewRecording = async (recordingId, status, pages) => {
+  const handleReviewRecording = async (recordingId, status, pages, reason) => {
     setReviewError('');
     setReviewSuccess('');
+    // A reason is required when rejecting or partially approving so the reader
+    // always learns why.
+    if ((status === 'rejected' || status === 'partially_approved') && !reason) {
+      setReviewError('Please choose a reason before rejecting or partially approving.');
+      return;
+    }
     try {
       const res = await fetch('/api/recordings', {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json', ...authHeaders() },
-        body: JSON.stringify({ recording_id: recordingId, status, approved_pages: pages })
+        body: JSON.stringify({ recording_id: recordingId, status, approved_pages: pages, review_reason: reason || '' })
       });
       if (!res.ok) throw new Error((await res.json()).error || 'Failed to review recording');
       setReviewSuccess('Recording reviewed.');
+      fetchData();
+    } catch (err) {
+      setReviewError(err.message);
+    }
+  };
+
+  // Add or edit the reason on an already-reviewed recording (no status change).
+  const handleSaveReason = async (recordingId, reason) => {
+    setReviewError('');
+    setReviewSuccess('');
+    if (!reason) {
+      setReviewError('Choose a reason to save.');
+      return;
+    }
+    try {
+      const res = await fetch('/api/recordings', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json', ...authHeaders() },
+        body: JSON.stringify({ recording_id: recordingId, review_reason: reason })
+      });
+      if (!res.ok) throw new Error((await res.json()).error || 'Failed to save reason');
+      setReviewSuccess('Reason saved — the reader can now see it.');
       fetchData();
     } catch (err) {
       setReviewError(err.message);
@@ -586,6 +628,7 @@ export default function AdminDashboard() {
                 recordings.filter((r) => r.status === 'pending').map((rec) => {
                   const currentPages = partialPages[rec.id] ?? String(rec.pages_recorded || 1);
                   const payoutUsd = (parseFloat(currentPages) || 0) * (parseFloat(ratePerPage) || 0);
+                  const reason = reviewReasons[rec.id] || '';
                   return (
                     <div key={rec.id} className="bg-slate-900/30 rounded-2xl p-4.5 border border-slate-900 space-y-3">
                       <div className="flex justify-between items-start">
@@ -618,9 +661,20 @@ export default function AdminDashboard() {
                             <span className="text-[10px] font-bold text-slate-500 font-mono">≈ {toINR(payoutUsd)}</span>
                           </span>
                         </div>
+                        <div>
+                          <label className="text-[9px] font-black text-slate-500 uppercase tracking-wider block mb-1">Reason (required to reject / partial)</label>
+                          <select
+                            value={reason}
+                            onChange={(e) => setReviewReasons({ ...reviewReasons, [rec.id]: e.target.value })}
+                            className="w-full px-2.5 py-2 bg-slate-950 border border-slate-800 rounded-lg text-xs text-white focus:outline-none focus:border-indigo-500"
+                          >
+                            <option value="">Select a reason…</option>
+                            {REVIEW_REASONS.map((r) => <option key={r} value={r}>{r}</option>)}
+                          </select>
+                        </div>
                         <div className="grid grid-cols-3 gap-2">
-                          <button onClick={() => handleReviewRecording(rec.id, 'rejected', 0)} className="py-2 bg-red-950/20 text-red-400 hover:bg-red-950/30 border border-red-950/30 text-[10px] font-black rounded-lg uppercase tracking-wider">Reject</button>
-                          <button onClick={() => handleReviewRecording(rec.id, 'partially_approved', parseInt(currentPages))} className="py-2 bg-indigo-950/20 text-indigo-400 hover:bg-indigo-950/30 border border-indigo-950/30 text-[10px] font-black rounded-lg uppercase tracking-wider">Partial</button>
+                          <button onClick={() => handleReviewRecording(rec.id, 'rejected', 0, reason)} className="py-2 bg-red-950/20 text-red-400 hover:bg-red-950/30 border border-red-950/30 text-[10px] font-black rounded-lg uppercase tracking-wider">Reject</button>
+                          <button onClick={() => handleReviewRecording(rec.id, 'partially_approved', parseInt(currentPages), reason)} className="py-2 bg-indigo-950/20 text-indigo-400 hover:bg-indigo-950/30 border border-indigo-950/30 text-[10px] font-black rounded-lg uppercase tracking-wider">Partial</button>
                           <button onClick={() => handleReviewRecording(rec.id, 'approved', parseInt(currentPages))} className="py-2 bg-emerald-950/40 text-emerald-400 hover:bg-emerald-950/30 border border-emerald-950/30 text-[10px] font-black rounded-lg uppercase tracking-wider">Approve</button>
                         </div>
                       </div>
@@ -629,6 +683,50 @@ export default function AdminDashboard() {
                 })
               )}
             </div>
+
+            {/* Already-reviewed clips — add or edit the reason shown to the reader */}
+            {recordings.filter((r) => r.status === 'rejected' || r.status === 'partially_approved').length > 0 && (
+              <div className="space-y-3 pt-2">
+                <h3 className="text-[10px] font-black uppercase tracking-widest text-slate-500">Reviewed — add / edit reason</h3>
+                {recordings
+                  .filter((r) => r.status === 'rejected' || r.status === 'partially_approved')
+                  .map((rec) => {
+                    const reason = reviewReasons[rec.id] ?? rec.review_reason ?? '';
+                    return (
+                      <div key={rec.id} className="bg-slate-900/20 rounded-2xl p-4 border border-slate-900 space-y-2.5">
+                        <div className="flex justify-between items-start gap-2">
+                          <div className="min-w-0">
+                            <span className="font-bold text-white block truncate">{rec.books?.title}</span>
+                            <span className="text-[10px] text-indigo-400 font-mono block truncate">{rec.profiles?.email}</span>
+                          </div>
+                          <span className={`text-[9px] font-black uppercase px-2.5 py-1 rounded-full border shrink-0 ${rec.status === 'rejected' ? 'bg-red-950/20 text-red-400 border-red-900/30' : 'bg-indigo-950/20 text-indigo-400 border-indigo-900/30'}`}>
+                            {rec.status.replace('_', ' ')}
+                          </span>
+                        </div>
+                        {rec.review_reason && (
+                          <p className="text-[11px] text-slate-400"><span className="text-slate-500 font-bold">Current reason:</span> {rec.review_reason}</p>
+                        )}
+                        <div className="flex gap-2">
+                          <select
+                            value={reason}
+                            onChange={(e) => setReviewReasons({ ...reviewReasons, [rec.id]: e.target.value })}
+                            className="flex-1 px-2.5 py-2 bg-slate-950 border border-slate-800 rounded-lg text-xs text-white focus:outline-none focus:border-indigo-500"
+                          >
+                            <option value="">Select a reason…</option>
+                            {REVIEW_REASONS.map((r) => <option key={r} value={r}>{r}</option>)}
+                          </select>
+                          <button
+                            onClick={() => handleSaveReason(rec.id, reason)}
+                            className="px-3.5 py-2 bg-indigo-600 hover:bg-indigo-500 text-white text-[10px] font-black uppercase tracking-wider rounded-lg shrink-0"
+                          >
+                            Save
+                          </button>
+                        </div>
+                      </div>
+                    );
+                  })}
+              </div>
+            )}
           </div>
         )}
 

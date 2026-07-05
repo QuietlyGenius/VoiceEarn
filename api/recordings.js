@@ -117,12 +117,39 @@ export default async function handler(req, res) {
         return res.status(403).json({ error: 'Forbidden: Only administrators can review recordings.' });
       }
 
-      const { recording_id, status, approved_pages } = req.body;
-      if (!recording_id || !status) {
-        return res.status(400).json({ error: 'Recording ID and status are required' });
+      const { recording_id, status, approved_pages, review_reason } = req.body;
+      if (!recording_id) {
+        return res.status(400).json({ error: 'Recording ID is required' });
       }
 
       const recId = parseInt(recording_id);
+
+      const { data: recording, error: fetchError } = await supabase
+        .from('recordings')
+        .select('*')
+        .eq('id', recId)
+        .single();
+
+      if (fetchError) throw fetchError;
+
+      // Reason-only update: add/edit the reason on an already-reviewed recording
+      // without changing its status or earnings (for existing rejected clips).
+      if (!status) {
+        const { data, error } = await supabase
+          .from('recordings')
+          .update({ review_reason: (review_reason ?? '').trim() || null })
+          .eq('id', recId)
+          .select()
+          .single();
+        if (error) {
+          if (/review_reason/.test(error.message || '')) {
+            return res.status(400).json({ error: 'Review reasons need a one-time setup — add the review_reason column (see docs).' });
+          }
+          throw error;
+        }
+        return res.status(200).json(data);
+      }
+
       const pages = parseFloat(approved_pages || 0);
 
       // Validate status
@@ -136,14 +163,6 @@ export default async function handler(req, res) {
         return res.status(400).json({ error: 'Approved pages must be zero or greater.' });
       }
 
-      const { data: recording, error: fetchError } = await supabase
-        .from('recordings')
-        .select('*')
-        .eq('id', recId)
-        .single();
-
-      if (fetchError) throw fetchError;
-
       if (recording.status !== 'pending') {
         return res.status(400).json({ error: 'Recording has already been reviewed' });
       }
@@ -156,6 +175,9 @@ export default async function handler(req, res) {
       const ratePerPage = parseFloat(rateSetting?.value ?? 0.01);
       const earnings = pages * ratePerPage;
 
+      // Core review update (status + earnings). The reason is applied in a
+      // separate best-effort update below so a missing review_reason column can
+      // never block the actual review/payout.
       const { data: updatedRec, error: updateRecError } = await supabase
         .from('recordings')
         .update({
@@ -167,6 +189,15 @@ export default async function handler(req, res) {
         .single();
 
       if (updateRecError) throw updateRecError;
+
+      if (review_reason) {
+        const { error: reasonErr } = await supabase
+          .from('recordings')
+          .update({ review_reason: String(review_reason).trim() || null })
+          .eq('id', recId);
+        if (reasonErr) console.warn('review_reason not saved (add the column?):', reasonErr.message);
+        else updatedRec.review_reason = String(review_reason).trim() || null;
+      }
 
       if ((status === 'approved' || status === 'partially_approved') && earnings > 0) {
         const { data: profile, error: profileError } = await supabase
