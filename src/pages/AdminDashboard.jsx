@@ -2,7 +2,8 @@ import { useState, useEffect } from 'react';
 import { useAuth } from '../contexts/AuthContext';
 import {
   BookOpen, Check, X, Shield, AlertCircle, UploadCloud, Settings,
-  UserCheck, Clock, GraduationCap, Globe, Languages, Download, Mail
+  UserCheck, Clock, GraduationCap, Globe, Languages, Download, Mail,
+  Lock, Trash2, RotateCcw
 } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import { uploadToBucket } from '../lib/uploadFile';
@@ -67,7 +68,7 @@ export default function AdminDashboard() {
 
       const [allRes, booksRes, recRes, wRes, sRes, exRes] = await Promise.all([
         fetch('/api/registrations', { headers }),
-        fetch('/api/books', { headers }),
+        fetch('/api/books?all=true', { headers }),
         fetch('/api/recordings?admin=true', { headers }),
         fetch('/api/withdrawals?admin=true', { headers }),
         fetch('/api/settings', { headers }),
@@ -174,6 +175,25 @@ export default function AdminDashboard() {
     } finally {
       setUploadingBook(false);
       setFileParsingStep('');
+    }
+  };
+
+  // Toggle the sequential-lock flag, or archive/restore a book. Archiving only
+  // hides it from readers and closes new recordings — it never deletes pages,
+  // recordings or progress, so completed work and earnings are preserved.
+  const handleUpdateBook = async (bookId, updates) => {
+    setBookError('');
+    setBookSuccess('');
+    try {
+      const res = await fetch('/api/books', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json', ...authHeaders() },
+        body: JSON.stringify({ book_id: bookId, ...updates })
+      });
+      if (!res.ok) throw new Error((await res.json()).error || 'Failed to update book');
+      fetchData();
+    } catch (err) {
+      setBookError(err.message);
     }
   };
 
@@ -491,17 +511,60 @@ export default function AdminDashboard() {
             </div>
 
             <div className="space-y-2">
-              <h4 className="text-[10px] font-black uppercase tracking-widest text-slate-500">Library ({books.length})</h4>
+              <h4 className="text-[10px] font-black uppercase tracking-widest text-slate-500">Library ({books.filter((b) => !b.archived).length} active)</h4>
+              <p className="text-[11px] text-slate-500 leading-relaxed">
+                <strong className="text-slate-400">Sequential</strong> books stay locked for readers until the earlier books reach 90%. Turn it off to make a book freely available. <strong className="text-slate-400">Remove</strong> hides a book and stops new recordings — existing recordings, earnings and progress are kept, and you can restore it anytime.
+              </p>
               <div className="space-y-2">
-                {books.map((book) => (
-                  <div key={book.id} className="bg-slate-900/20 p-3.5 rounded-xl border border-slate-900 flex justify-between items-center text-xs">
-                    <div>
-                      <span className="font-bold text-slate-200 block">{book.title}</span>
-                      <span className="text-[10px] text-slate-500 mt-0.5 block">{book.total_pages} pages • {book.calculated_minutes} min cap</span>
+                {books.map((book) => {
+                  const gated = book.requires_previous !== false;
+                  return (
+                    <div key={book.id} className={`p-4 rounded-xl border ${book.archived ? 'bg-slate-950/50 border-slate-900/80 opacity-80' : 'bg-slate-900/20 border-slate-900'}`}>
+                      <div className="flex justify-between items-start gap-2">
+                        <div className="min-w-0">
+                          <span className="font-bold text-slate-200 block truncate">{book.title}</span>
+                          <span className="text-[10px] text-slate-500 mt-0.5 block">{book.total_pages} pages • {book.calculated_minutes} min</span>
+                        </div>
+                        {book.archived ? (
+                          <span className="text-[9px] bg-red-950/30 text-red-400 px-2 py-1 rounded border border-red-900/30 font-black uppercase tracking-wider shrink-0">Removed</span>
+                        ) : (
+                          <span className="text-[9px] bg-emerald-950/20 text-emerald-400 px-2 py-1 rounded border border-emerald-900/20 font-black uppercase tracking-wider shrink-0">Active</span>
+                        )}
+                      </div>
+
+                      {book.archived ? (
+                        <div className="flex items-center justify-between mt-3 pt-3 border-t border-slate-800/50">
+                          <span className="text-[10px] text-slate-600">Hidden from readers · recordings kept</span>
+                          <button
+                            onClick={() => handleUpdateBook(book.id, { archived: false })}
+                            className="text-[10px] font-black uppercase tracking-wider px-2.5 py-1.5 rounded-lg border bg-slate-800 text-slate-300 border-slate-700 hover:bg-slate-700 flex items-center gap-1.5"
+                          >
+                            <RotateCcw className="w-3 h-3" /> Restore
+                          </button>
+                        </div>
+                      ) : (
+                        <div className="flex items-center justify-between mt-3 pt-3 border-t border-slate-800/50">
+                          <button
+                            onClick={() => handleUpdateBook(book.id, { requires_previous: !gated })}
+                            className={`text-[10px] font-black uppercase tracking-wider px-2.5 py-1.5 rounded-lg border flex items-center gap-1.5 ${gated ? 'bg-indigo-950/30 text-indigo-300 border-indigo-900/40' : 'bg-slate-800 text-slate-400 border-slate-700'}`}
+                          >
+                            <Lock className="w-3 h-3" /> Sequential: {gated ? 'On' : 'Off'}
+                          </button>
+                          <button
+                            onClick={() => {
+                              if (window.confirm(`Remove "${book.title}"?\n\nReaders will no longer see it and can't record it. Existing recordings, earnings and progress are kept, and you can restore it later.`)) {
+                                handleUpdateBook(book.id, { archived: true });
+                              }
+                            }}
+                            className="text-[10px] font-black uppercase tracking-wider px-2.5 py-1.5 rounded-lg border bg-red-950/20 text-red-400 border-red-900/30 hover:bg-red-950/40 flex items-center gap-1.5"
+                          >
+                            <Trash2 className="w-3 h-3" /> Remove
+                          </button>
+                        </div>
+                      )}
                     </div>
-                    <span className="text-[10px] bg-indigo-950/20 text-indigo-400 px-2 py-0.5 rounded border border-indigo-900/20 font-bold uppercase tracking-wider font-mono">Active</span>
-                  </div>
-                ))}
+                  );
+                })}
               </div>
             </div>
           </div>

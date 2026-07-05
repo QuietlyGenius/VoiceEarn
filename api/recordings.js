@@ -81,6 +81,18 @@ export default async function handler(req, res) {
 
       const pagesRecorded = parseInt(pages_recorded, 10);
 
+      // Refuse recordings for a removed (archived) book. select('*') so this is
+      // safe even before the `archived` column exists.
+      const { data: bookRow } = await supabase
+        .from('books')
+        .select('*')
+        .eq('id', parseInt(book_id))
+        .maybeSingle();
+      if (!bookRow) return res.status(404).json({ error: 'Book not found.' });
+      if (bookRow.archived) {
+        return res.status(410).json({ error: 'This book has been removed; new recordings are closed.' });
+      }
+
       const { data: recording, error: recError } = await supabase
         .from('recordings')
         .insert({

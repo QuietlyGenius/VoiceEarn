@@ -168,16 +168,19 @@ export default function Dashboard() {
   // last page, i.e. current_page > total_pages) is tracked separately, only for
   // the status pill.
   const UNLOCK_THRESHOLD = 0.9;
-  let blockingTitle = null;
+  let blockingTitle = null; // earliest sequential book not yet at 90%
   const booksWithState = books.map((book) => {
     const total = book.total_pages || 1;
     const cp = book.current_page || 1;
     const done = cp > total;
     const pagesDone = done ? total : Math.max(0, cp - 1);
-    const unlocksNext = done || pagesDone / total >= UNLOCK_THRESHOLD;
-    const locked = blockingTitle !== null;
-    const lockedBy = blockingTitle;
-    if (!unlocksNext && !blockingTitle) blockingTitle = book.title;
+    const reached90 = done || pagesDone / total >= UNLOCK_THRESHOLD;
+    // Only books flagged "sequential" (requires_previous, the default) take part
+    // in the lock chain. A book with the flag off is always freely available.
+    const gated = book.requires_previous !== false;
+    const locked = gated && blockingTitle !== null;
+    const lockedBy = locked ? blockingTitle : null;
+    if (gated && !reached90 && !blockingTitle) blockingTitle = book.title;
     return {
       ...book,
       total,
@@ -341,20 +344,26 @@ export default function Dashboard() {
               ) : (
                 filteredBooks.map((book) => (
                   book.locked ? (
-                    /* LOCKED — blurred with a clear "finish the previous book" message */
-                    <div key={book.id} className="relative rounded-2xl border border-slate-900 overflow-hidden">
-                      <div className="p-5 blur-[2.5px] opacity-40 select-none pointer-events-none">
-                        <h4 className="font-extrabold text-lg text-white">{book.title}</h4>
-                        <p className="text-xs text-slate-500 font-bold mt-1">{book.total} pages</p>
-                        <div className="w-full bg-slate-950 rounded-full h-2.5 mt-5 border border-slate-900" />
+                    /* LOCKED — visually distinct from active books: dashed frame,
+                       padlock, greyed (but readable) title, clear unlock rule. */
+                    <div key={book.id} className="relative rounded-2xl border-2 border-dashed border-slate-700/70 bg-slate-950/60 p-5 space-y-3">
+                      <div className="absolute top-3.5 right-3.5 flex items-center gap-1 bg-slate-800 text-slate-300 text-[9px] font-black uppercase tracking-widest px-2.5 py-1 rounded-full border border-slate-700">
+                        <Lock className="w-3 h-3" /> Locked
                       </div>
-                      <div className="absolute inset-0 flex flex-col items-center justify-center text-center px-6 bg-slate-950/55">
-                        <div className="w-11 h-11 rounded-full bg-slate-800 border border-slate-700 flex items-center justify-center mb-2.5">
-                          <Lock className="w-5 h-5 text-slate-300" />
+                      <div className="flex items-center gap-3">
+                        <div className="w-12 h-12 rounded-2xl bg-slate-800/80 border border-slate-700 flex items-center justify-center shrink-0">
+                          <Lock className="w-6 h-6 text-slate-500" />
                         </div>
-                        <p className="text-sm font-black text-slate-100 uppercase tracking-wide">Locked</p>
-                        <p className="text-[12px] text-slate-400 mt-1 leading-snug">
-                          Get <span className="text-slate-200 font-bold">"{book.lockedBy}"</span> to 90% to unlock this book.
+                        <div className="min-w-0 pr-16">
+                          <h4 className="font-extrabold text-lg text-slate-400 leading-tight truncate">{book.title}</h4>
+                          <span className="text-[12px] text-slate-600 font-semibold">{book.total} pages · not yet available</span>
+                        </div>
+                      </div>
+                      <div className="bg-slate-900/70 rounded-xl px-3.5 py-3 border border-slate-800 flex items-start gap-2">
+                        <Lock className="w-3.5 h-3.5 text-amber-400 shrink-0 mt-0.5" />
+                        <p className="text-[13px] text-slate-300 font-semibold leading-snug">
+                          Reach <span className="text-white font-bold">90%</span> of{' '}
+                          <span className="text-white font-bold">"{book.lockedBy}"</span> to unlock this book.
                         </p>
                       </div>
                     </div>

@@ -44,7 +44,7 @@ function paginate(text) {
 
 export default async function handler(req, res) {
   res.setHeader('Access-Control-Allow-Origin', '*');
-  res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
+  res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, OPTIONS');
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
   if (req.method === 'OPTIONS') return res.status(204).end();
 
@@ -74,6 +74,11 @@ export default async function handler(req, res) {
         if (bookRes.error) throw bookRes.error;
         if (pagesRes.error) throw pagesRes.error;
         if (!bookRes.data) return res.status(404).json({ error: 'Book not found' });
+        // A removed (archived) book can't be opened or recorded, even via a
+        // direct link. Admins never hit this — they manage books elsewhere.
+        if (bookRes.data.archived && !isAdmin(user.email)) {
+          return res.status(410).json({ error: 'This book has been removed and is no longer available.' });
+        }
         const savedPage = Math.max(1, ...(progRes.data || []).map((r) => parseInt(r.current_page, 10) || 1));
         return res.status(200).json({
           book: { ...bookRes.data, current_page: savedPage },
@@ -82,12 +87,17 @@ export default async function handler(req, res) {
       }
 
       // Library list view: all books merged with this user's progress.
+      // Removed (archived) books are hidden from readers; admins can include
+      // them with ?all=true so they can restore or see them.
+      const includeArchived = req.query.all === 'true' && isAdmin(user.email);
       const { data: books, error: booksError } = await supabase
         .from('books')
         .select('*')
         .order('id', { ascending: true });
 
       if (booksError) throw booksError;
+
+      const visible = includeArchived ? books : books.filter((b) => !b.archived);
 
       const progressMap = {};
       const { data: progress } = await supabase
@@ -99,7 +109,7 @@ export default async function handler(req, res) {
         progressMap[p.book_id] = Math.max(progressMap[p.book_id] || 1, pg);
       });
 
-      return res.status(200).json(books.map((book) => ({
+      return res.status(200).json(visible.map((book) => ({
         ...book,
         current_page: progressMap[book.id] || 1
       })));
@@ -156,6 +166,36 @@ export default async function handler(req, res) {
       if (pagesError) throw pagesError;
 
       return res.status(201).json(book);
+    }
+
+    if (req.method === 'PUT') {
+      // SECURITY: managing books (lock flag / archive) is admin-only.
+      if (!isAdmin(user.email)) {
+        return res.status(403).json({ error: 'Forbidden: Only administrators can manage books.' });
+      }
+
+      const { book_id, requires_previous, archived } = req.body || {};
+      if (!book_id) return res.status(400).json({ error: 'book_id is required' });
+
+      const updates = {};
+      if (typeof requires_previous === 'boolean') updates.requires_previous = requires_previous;
+      if (typeof archived === 'boolean') updates.archived = archived;
+      if (Object.keys(updates).length === 0) {
+        return res.status(400).json({ error: 'Nothing to update.' });
+      }
+
+      // NOTE: archiving/unarchiving only hides the book. It never touches
+      // book_pages, recordings or user_book_progress — completed work and
+      // earnings are preserved and the action is fully reversible.
+      const { data, error } = await supabase
+        .from('books')
+        .update(updates)
+        .eq('id', parseInt(book_id))
+        .select()
+        .single();
+
+      if (error) throw error;
+      return res.status(200).json(data);
     }
 
     res.status(405).json({ error: 'Method not allowed' });
