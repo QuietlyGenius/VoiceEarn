@@ -133,6 +133,40 @@ if (isMockMode) {
           };
           return builder;
         },
+        upsert: (rows, options = {}) => {
+          // Insert-or-update on a unique key, mirroring PostgREST upsert.
+          const db = readDB();
+          const list = db[table] || [];
+          const conflictCols = (options.onConflict || 'id').split(',').map((s) => s.trim());
+          const inputRows = Array.isArray(rows) ? rows : [rows];
+          const resultRows = [];
+
+          inputRows.forEach((row) => {
+            const idx = list.findIndex((r) =>
+              conflictCols.every((c) => String(r[c]) === String(row[c]))
+            );
+            if (idx >= 0) {
+              const merged = { ...list[idx], ...row };
+              list[idx] = merged;
+              resultRows.push(merged);
+            } else {
+              const inserted = { id: list.length + 1, created_at: new Date().toISOString(), ...row };
+              list.push(inserted);
+              resultRows.push(inserted);
+            }
+          });
+
+          db[table] = list;
+          writeDB(db);
+
+          return {
+            select: () => ({
+              single: async () => ({ data: resultRows[0] || null, error: null }),
+              then: (resolve) => resolve({ data: resultRows, error: null })
+            }),
+            then: (resolve) => resolve({ data: resultRows, error: null })
+          };
+        },
         update: (values) => {
           const builder = {
             eq: (col, val) => {

@@ -18,47 +18,37 @@ export default async function handler(req, res) {
       return res.status(400).json({ error: 'Book ID and current page are required' });
     }
 
-    const { data: existing, error: findError } = await supabase
+    // Read the current bookmark so we can keep it monotonic (forward-only):
+    // Supabase upsert overwrites the columns you give it and can't express
+    // "take the larger page" on its own, so we compute the furthest page here.
+    const { data: existingRows, error: findError } = await supabase
       .from('user_book_progress')
-      .select('*')
+      .select('current_page')
       .eq('user_id', user.id)
-      .eq('book_id', book_id)
-      .maybeSingle();
+      .eq('book_id', book_id);
 
     if (findError) throw findError;
 
-    let result;
-    if (existing) {
-      // Monotonic: a bookmark only ever moves forward. This guarantees an
-      // accidental open-at-page-1 (or any lower page) can never wipe a reader's
-      // real progress by overwriting it with a smaller number.
-      const nextPage = Math.max(
-        parseInt(existing.current_page, 10) || 0,
-        parseInt(current_page, 10) || 0
-      );
-      const { data, error } = await supabase
-        .from('user_book_progress')
-        .update({ current_page: nextPage, updated_at: new Date() })
-        .eq('id', existing.id)
-        .select()
-        .single();
-      if (error) throw error;
-      result = data;
-    } else {
-      const { data, error } = await supabase
-        .from('user_book_progress')
-        .insert({
-          user_id: user.id,
-          book_id,
-          current_page
-        })
-        .select()
-        .single();
-      if (error) throw error;
-      result = data;
-    }
+    const furthest = Math.max(
+      parseInt(current_page, 10) || 0,
+      ...(existingRows || []).map((r) => parseInt(r.current_page, 10) || 0)
+    );
 
-    return res.status(200).json(result);
+    // Atomic insert-or-update on the (user_id, book_id) unique key. This removes
+    // the find-then-insert race entirely — concurrent first-time saves resolve
+    // via ON CONFLICT DO UPDATE instead of erroring on the unique constraint.
+    const { data, error } = await supabase
+      .from('user_book_progress')
+      .upsert(
+        { user_id: user.id, book_id, current_page: furthest, updated_at: new Date() },
+        { onConflict: 'user_id,book_id' }
+      )
+      .select()
+      .single();
+
+    if (error) throw error;
+
+    return res.status(200).json(data);
   } catch (err) {
     console.error('Progress API error:', err);
     res.status(500).json({ error: err.message });
