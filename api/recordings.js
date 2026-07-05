@@ -231,6 +231,17 @@ export default async function handler(req, res) {
 
       if (updateRecError) throw updateRecError;
 
+      // If this clip had no locked rate (recorded before rate-locking existed),
+      // freeze it now at the rate we just paid, so a later rate change can never
+      // re-value it. Best-effort — a missing column must not fail the review.
+      if (isNaN(parseFloat(recording.rate_per_page))) {
+        const { error: rlErr } = await supabase
+          .from('recordings')
+          .update({ rate_per_page: ratePerPage })
+          .eq('id', recId);
+        if (!rlErr) updatedRec.rate_per_page = ratePerPage;
+      }
+
       if (review_reason) {
         const { error: reasonErr } = await supabase
           .from('recordings')
