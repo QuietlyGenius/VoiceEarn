@@ -344,26 +344,44 @@ export default function Dashboard() {
               ) : (
                 filteredBooks.map((book) => (
                   book.locked ? (
-                    /* LOCKED — visually distinct from active books: dashed frame,
-                       padlock, greyed (but readable) title, clear unlock rule. */
-                    <div key={book.id} className="relative rounded-2xl border-2 border-dashed border-slate-700/70 bg-slate-950/60 p-5 space-y-3">
-                      <div className="absolute top-3.5 right-3.5 flex items-center gap-1 bg-slate-800 text-slate-300 text-[9px] font-black uppercase tracking-widest px-2.5 py-1 rounded-full border border-slate-700">
-                        <Lock className="w-3 h-3" /> Locked
-                      </div>
-                      <div className="flex items-center gap-3">
-                        <div className="w-12 h-12 rounded-2xl bg-slate-800/80 border border-slate-700 flex items-center justify-center shrink-0">
-                          <Lock className="w-6 h-6 text-slate-500" />
+                    /* LOCKED — the same card as an unlocked book, just blurred and
+                       non-interactive, with a crisp centered lock overlay. */
+                    <div key={book.id} className="relative rounded-2xl overflow-hidden">
+                      <div className="bg-slate-900/30 rounded-2xl p-5 border border-slate-900 space-y-4 blur-[3px] opacity-50 select-none pointer-events-none">
+                        <div className="flex justify-between items-start gap-3">
+                          <div className="min-w-0">
+                            <h4 className="font-extrabold text-lg text-white leading-tight truncate">{book.title}</h4>
+                            <span className="text-[12px] text-slate-500 font-semibold">{book.total} pages total</span>
+                          </div>
+                          <span className="shrink-0 text-[11px] font-black uppercase px-3 py-1.5 rounded-full bg-slate-800 text-slate-300 border border-slate-700">Locked</span>
                         </div>
-                        <div className="min-w-0 pr-16">
-                          <h4 className="font-extrabold text-lg text-slate-400 leading-tight truncate">{book.title}</h4>
-                          <span className="text-[12px] text-slate-600 font-semibold">{book.total} pages · not yet available</span>
+                        <div className="space-y-2">
+                          <div className="flex items-end justify-between">
+                            <span className="text-2xl font-black text-white leading-none">
+                              {book.pagesDone}<span className="text-slate-500 text-base font-bold"> / {book.total}</span>
+                            </span>
+                            <span className="text-[12px] font-bold text-slate-400">pages recorded</span>
+                          </div>
+                          <div className="w-full bg-slate-950 rounded-full h-2.5 overflow-hidden border border-slate-900">
+                            <div className="bg-gradient-to-r from-indigo-500 to-emerald-500 h-full rounded-full" style={{ width: `${book.pct}%` }} />
+                          </div>
+                        </div>
+                        <div className="flex items-center justify-between text-[12px] bg-slate-950/40 rounded-lg px-3 py-2 border border-slate-900">
+                          <span className="text-slate-500 font-bold uppercase tracking-wider text-[10px]">Earn up to</span>
+                          <span className="text-emerald-400 font-black">
+                            +${(book.total * ratePerPage).toFixed(2)}
+                            <span className="text-slate-500 font-semibold ml-1">≈ {toINR(book.total * ratePerPage)}</span>
+                          </span>
                         </div>
                       </div>
-                      <div className="bg-slate-900/70 rounded-xl px-3.5 py-3 border border-slate-800 flex items-start gap-2">
-                        <Lock className="w-3.5 h-3.5 text-amber-400 shrink-0 mt-0.5" />
-                        <p className="text-[13px] text-slate-300 font-semibold leading-snug">
-                          Reach <span className="text-white font-bold">90%</span> of{' '}
-                          <span className="text-white font-bold">"{book.lockedBy}"</span> to unlock this book.
+                      {/* crisp overlay, centered so it never overlaps the title */}
+                      <div className="absolute inset-0 flex flex-col items-center justify-center text-center px-6">
+                        <div className="w-12 h-12 rounded-full bg-slate-900 border border-slate-700 flex items-center justify-center mb-2 shadow-lg">
+                          <Lock className="w-6 h-6 text-slate-100" />
+                        </div>
+                        <span className="text-sm font-black text-white uppercase tracking-wide drop-shadow">Locked</span>
+                        <p className="text-[12px] text-slate-200 font-semibold mt-1.5 leading-snug max-w-[250px] bg-slate-950/80 border border-slate-800 rounded-lg px-3 py-1.5">
+                          Reach 90% of <span className="text-white font-bold">"{book.lockedBy}"</span> to unlock
                         </p>
                       </div>
                     </div>
@@ -459,7 +477,8 @@ export default function Dashboard() {
                     const estimateUsd = (rec.pages_recorded || 1) * ratePerPage;
                     const isEarned = rec.status === 'approved' || rec.status === 'partially_approved';
                     return (
-                    <div key={rec.id} className="bg-slate-900/30 p-4 rounded-2xl border border-slate-900 flex items-center justify-between gap-3">
+                    <div key={rec.id} className="bg-slate-900/30 p-4 rounded-2xl border border-slate-900 space-y-2.5">
+                      <div className="flex items-center justify-between gap-3">
                       <div className="min-w-0">
                         <span className="font-bold text-white text-[15px] block truncate">
                           {rec.books?.title}
@@ -498,6 +517,15 @@ export default function Dashboard() {
                           </>
                         )}
                       </div>
+                      </div>
+                      {rec.review_reason && (rec.status === 'rejected' || rec.status === 'partially_approved') && (
+                        <div className="text-[12px] rounded-lg px-3 py-2 bg-amber-950/15 border border-amber-900/25 text-amber-200/90 leading-snug">
+                          <span className="font-bold text-amber-400">
+                            {rec.status === 'rejected' ? 'Why it was rejected: ' : 'Note: '}
+                          </span>
+                          {rec.review_reason}
+                        </div>
+                      )}
                     </div>
                     );
                   })
