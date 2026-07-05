@@ -346,18 +346,12 @@ export default function RecordingStudio() {
     navigate('/dashboard');
   };
 
-  const handlePageChange = async (newIdx) => {
+  // Paging with Prev/Next only moves the VIEW. It must NOT save progress —
+  // otherwise a reader could scroll through the whole book without recording
+  // and it would count as done. Progress is saved only on a submitted recording.
+  const handlePageChange = (newIdx) => {
     if (newIdx < 0 || newIdx >= pages.length) return;
     setCurrentPageIdx(newIdx);
-    try {
-      await fetch('/api/progress', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${session.access_token}` },
-        body: JSON.stringify({ book_id: parseInt(bookId), current_page: pages[newIdx].page_number })
-      });
-    } catch (err) {
-      console.error('Error saving reading progress:', err);
-    }
   };
 
   const uploadRecording = async () => {
@@ -396,12 +390,21 @@ export default function RecordingStudio() {
       setUploadSuccess(true);
       setIsUploading(false);
 
+      // Progress advances ONLY by recording a page. Save the bookmark one past
+      // the page just recorded (the server's monotonic upsert keeps the
+      // furthest). This is the single source of progress — paging never saves.
+      const recordedPageNumber = pages[currentPageIdx]?.page_number || (currentPageIdx + 1);
+      fetch('/api/progress', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${session.access_token}` },
+        body: JSON.stringify({ book_id: parseInt(bookId), current_page: recordedPageNumber + 1 })
+      }).catch((e) => console.error('Failed to save progress:', e));
+
       const nextIdx = currentPageIdx + 1;
       if (nextIdx < pages.length) {
-        // Auto-advance to the next page so contributors read straight through
-        // the book instead of re-recording the page they just finished.
+        // Auto-advance the VIEW to the next page for a fresh recording.
         setTimeout(() => {
-          handlePageChange(nextIdx);
+          setCurrentPageIdx(nextIdx);
           setAudioBlob(null);
           if (audioUrl) URL.revokeObjectURL(audioUrl);
           setAudioUrl('');
@@ -411,15 +414,7 @@ export default function RecordingStudio() {
           sessionStartPageIdxRef.current = nextIdx;
         }, 1200);
       } else {
-        // Finished the final page — mark the book complete (bookmark one past
-        // the last page) so it shows as done and unlocks the next book, then
-        // head back to the dashboard.
-        const lastPageNumber = pages[pages.length - 1]?.page_number || pages.length;
-        fetch('/api/progress', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${session.access_token}` },
-          body: JSON.stringify({ book_id: parseInt(bookId), current_page: lastPageNumber + 1 })
-        }).catch((e) => console.error('Failed to mark book complete:', e));
+        // Final page recorded — head back to the dashboard.
         setTimeout(() => navigate('/dashboard'), 1600);
       }
     } catch (err) {
