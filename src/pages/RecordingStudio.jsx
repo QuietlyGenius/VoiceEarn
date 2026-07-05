@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
+import { uploadToBucket } from '../lib/uploadFile';
 import {
   Mic, Square, ChevronLeft, ChevronRight, AlertTriangle,
   CheckCircle, AudioLines, ArrowLeft, Type, Palette, X, Pause, Play, ScrollText,
@@ -355,40 +356,36 @@ export default function RecordingStudio() {
     setUploadError('');
     setUploadSuccess(false);
     try {
-      const reader = new FileReader();
-      reader.readAsDataURL(audioBlob);
-      reader.onloadend = async () => {
-        const base64data = reader.result.split(',')[1];
-        const uploadRes = await fetch('/api/upload-file', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${session.access_token}` },
-          body: JSON.stringify({
-            fileName: `recording_${bookId}.webm`,
-            fileBase64: base64data,
-            contentType: audioBlob.type,
-            bucketName: 'audio-recordings'
-          })
-        });
-        const uploadData = await uploadRes.json();
-        if (!uploadRes.ok) throw new Error(uploadData.error || 'Audio upload failed');
+      // Sends bytes directly to Storage in production (no serverless size limit).
+      const audioUrlUploaded = await uploadToBucket({
+        file: audioBlob,
+        fileName: `recording_${bookId}.webm`,
+        contentType: audioBlob.type,
+        bucketName: 'audio-recordings',
+        accessToken: session.access_token
+      });
 
-        const pagesRecorded = Math.abs(currentPageIdx - sessionStartPageIdxRef.current) + 1;
-        const submitRes = await fetch('/api/recordings', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${session.access_token}` },
-          body: JSON.stringify({
-            book_id: parseInt(bookId),
-            audio_url: uploadData.url,
-            duration_seconds: recordingSeconds,
-            pages_recorded: pagesRecorded
-          })
-        });
-        if (!submitRes.ok) throw new Error((await submitRes.json()).error || 'Failed to submit recording');
+      const pagesRecorded = Math.abs(currentPageIdx - sessionStartPageIdxRef.current) + 1;
+      const submitRes = await fetch('/api/recordings', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${session.access_token}` },
+        body: JSON.stringify({
+          book_id: parseInt(bookId),
+          audio_url: audioUrlUploaded,
+          duration_seconds: recordingSeconds,
+          pages_recorded: pagesRecorded
+        })
+      });
+      if (!submitRes.ok) {
+        const err = await submitRes.text();
+        let msg;
+        try { msg = JSON.parse(err).error; } catch { msg = err; }
+        throw new Error(msg || 'Failed to submit recording');
+      }
 
-        setUploadSuccess(true);
-        setIsUploading(false);
-        setTimeout(() => navigate('/dashboard'), 2000);
-      };
+      setUploadSuccess(true);
+      setIsUploading(false);
+      setTimeout(() => navigate('/dashboard'), 2000);
     } catch (err) {
       console.error('Upload failed:', err);
       setUploadError(err.message || 'Network error during submission. Please try again.');

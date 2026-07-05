@@ -203,7 +203,13 @@ if (isMockMode) {
         },
         getPublicUrl: (filePath) => {
           return { data: { publicUrl: `/mock-uploads/${bucket}/${filePath}` } };
-        }
+        },
+        // Mock parity for the signed-upload flow. In local dev the frontend uses
+        // the base64 path instead, so this is just a safety net.
+        createSignedUploadUrl: async (filePath) => ({
+          data: { signedUrl: `/mock-uploads/${bucket}/${filePath}`, token: 'mock-token', path: filePath },
+          error: null
+        })
       })
     }
   };

@@ -5,6 +5,7 @@ import {
   UserCheck, Clock, GraduationCap, Globe, Languages, Download, Mail
 } from 'lucide-react';
 import { Link } from 'react-router-dom';
+import { uploadToBucket } from '../lib/uploadFile';
 
 export default function AdminDashboard() {
   const { session } = useAuth();
@@ -120,25 +121,13 @@ export default function AdminDashboard() {
 
       if (selectedFile) {
         setFileParsingStep(`Uploading ${selectedFile.name}…`);
-        const base64 = await new Promise((resolve) => {
-          const reader = new FileReader();
-          reader.onload = () => resolve(reader.result.split(',')[1]);
-          reader.readAsDataURL(selectedFile);
+        fileUrl = await uploadToBucket({
+          file: selectedFile,
+          fileName: selectedFile.name,
+          contentType: selectedFile.type,
+          bucketName: 'book-files',
+          accessToken: session.access_token
         });
-
-        const uploadRes = await fetch('/api/upload-file', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json', ...authHeaders() },
-          body: JSON.stringify({
-            fileName: selectedFile.name,
-            fileBase64: base64,
-            contentType: selectedFile.type,
-            bucketName: 'book-files'
-          })
-        });
-        const uploadData = await uploadRes.json();
-        if (!uploadRes.ok) throw new Error(uploadData.error || 'Failed to upload book file');
-        fileUrl = uploadData.url;
 
         if (!textToUpload) {
           setFileParsingStep('Extracting text from the document…');
