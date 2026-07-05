@@ -163,18 +163,21 @@ export default function Dashboard() {
   }
 
   // Books are read in the order they were uploaded (the API returns them
-  // id-ascending). A book stays LOCKED until every earlier book is completed.
-  // A book is "completed" when its bookmark has moved past the last page
-  // (current_page > total_pages, written when the final page is submitted).
+  // id-ascending). The NEXT book unlocks once the previous reaches 90% — so a
+  // reader isn't blocked by the final page or two. "Done" (bookmark past the
+  // last page, i.e. current_page > total_pages) is tracked separately, only for
+  // the status pill.
+  const UNLOCK_THRESHOLD = 0.9;
   let blockingTitle = null;
   const booksWithState = books.map((book) => {
     const total = book.total_pages || 1;
     const cp = book.current_page || 1;
     const done = cp > total;
+    const pagesDone = done ? total : Math.max(0, cp - 1);
+    const unlocksNext = done || pagesDone / total >= UNLOCK_THRESHOLD;
     const locked = blockingTitle !== null;
     const lockedBy = blockingTitle;
-    if (!done && !blockingTitle) blockingTitle = book.title;
-    const pagesDone = done ? total : Math.max(0, cp - 1);
+    if (!unlocksNext && !blockingTitle) blockingTitle = book.title;
     return {
       ...book,
       total,
@@ -351,7 +354,7 @@ export default function Dashboard() {
                         </div>
                         <p className="text-sm font-black text-slate-100 uppercase tracking-wide">Locked</p>
                         <p className="text-[12px] text-slate-400 mt-1 leading-snug">
-                          Finish <span className="text-slate-200 font-bold">"{book.lockedBy}"</span> first to unlock this book.
+                          Get <span className="text-slate-200 font-bold">"{book.lockedBy}"</span> to 90% to unlock this book.
                         </p>
                       </div>
                     </div>
