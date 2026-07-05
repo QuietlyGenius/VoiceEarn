@@ -68,7 +68,7 @@ export default async function handler(req, res) {
     }
 
     if (req.method === 'POST') {
-      const { book_id, audio_url, duration_seconds, pages_recorded } = req.body;
+      const { book_id, audio_url, duration_seconds, pages_recorded, start_page, end_page } = req.body;
       if (!book_id || !audio_url) {
         return res.status(400).json({ error: 'Book ID and audio URL are required' });
       }
@@ -108,6 +108,22 @@ export default async function handler(req, res) {
         .single();
 
       if (recError) throw recError;
+
+      // Best-effort: record which pages this clip covered. Separate update so a
+      // missing start_page/end_page column can never block submission.
+      const sp = parseInt(start_page, 10);
+      const ep = parseInt(end_page, 10);
+      if (!isNaN(sp) && !isNaN(ep)) {
+        const lo = Math.min(sp, ep);
+        const hi = Math.max(sp, ep);
+        const { error: pgErr } = await supabase
+          .from('recordings')
+          .update({ start_page: lo, end_page: hi })
+          .eq('id', recording.id);
+        if (pgErr) console.warn('start/end page not saved (add columns?):', pgErr.message);
+        else { recording.start_page = lo; recording.end_page = hi; }
+      }
+
       return res.status(201).json(recording);
     }
 

@@ -323,6 +323,15 @@ export default function AdminDashboard() {
 
   const fullName = (u) => [u.first_name, u.last_name].filter(Boolean).join(' ') || u.email;
 
+  // Which pages a clip covered. Falls back to the count for older recordings
+  // that were made before start/end pages were captured.
+  const pageLabel = (rec) => {
+    const s = rec.start_page, e = rec.end_page;
+    if (s && e) return s === e ? `Page ${s}` : `Pages ${s}–${e}`;
+    const n = rec.pages_recorded || 1;
+    return n > 1 ? `${n} pages` : 'Page ?';
+  };
+
   return (
     <div className="min-h-screen bg-slate-950 text-slate-100 pb-16">
       <header className="sticky top-0 z-40 bg-slate-900/80 backdrop-blur-md border-b border-slate-800 px-4 py-3 flex items-center justify-between">
@@ -638,7 +647,7 @@ export default function AdminDashboard() {
                         </div>
                         <span className="text-[10px] text-slate-500 font-mono text-right">
                           {Math.round(rec.duration_seconds)}s
-                          <span className="block">{rec.pages_recorded || 1} page(s)</span>
+                          <span className="block text-indigo-400">{pageLabel(rec)}</span>
                         </span>
                       </div>
 
@@ -684,44 +693,74 @@ export default function AdminDashboard() {
               )}
             </div>
 
-            {/* Already-reviewed clips — add or edit the reason shown to the reader */}
-            {recordings.filter((r) => r.status === 'rejected' || r.status === 'partially_approved').length > 0 && (
+            {/* Reviewed clips — approved / partial / rejected. Audio stays
+                visible and playable; reasons are editable for reject/partial. */}
+            {recordings.filter((r) => r.status !== 'pending').length > 0 && (
               <div className="space-y-3 pt-2">
-                <h3 className="text-[10px] font-black uppercase tracking-widest text-slate-500">Reviewed — add / edit reason</h3>
+                <h3 className="text-[10px] font-black uppercase tracking-widest text-slate-500">
+                  Reviewed ({recordings.filter((r) => r.status !== 'pending').length})
+                </h3>
                 {recordings
-                  .filter((r) => r.status === 'rejected' || r.status === 'partially_approved')
+                  .filter((r) => r.status !== 'pending')
                   .map((rec) => {
                     const reason = reviewReasons[rec.id] ?? rec.review_reason ?? '';
+                    const needsReason = rec.status === 'rejected' || rec.status === 'partially_approved';
+                    const earned = parseFloat(rec.approved_minutes || 0) * (parseFloat(ratePerPage) || 0);
+                    const badge =
+                      rec.status === 'approved' ? 'bg-emerald-950/20 text-emerald-400 border-emerald-900/30' :
+                      rec.status === 'rejected' ? 'bg-red-950/20 text-red-400 border-red-900/30' :
+                      'bg-indigo-950/20 text-indigo-400 border-indigo-900/30';
                     return (
                       <div key={rec.id} className="bg-slate-900/20 rounded-2xl p-4 border border-slate-900 space-y-2.5">
                         <div className="flex justify-between items-start gap-2">
                           <div className="min-w-0">
                             <span className="font-bold text-white block truncate">{rec.books?.title}</span>
                             <span className="text-[10px] text-indigo-400 font-mono block truncate">{rec.profiles?.email}</span>
+                            <span className="text-[10px] text-slate-500 font-mono block mt-0.5">{pageLabel(rec)} • {Math.round(rec.duration_seconds)}s</span>
                           </div>
-                          <span className={`text-[9px] font-black uppercase px-2.5 py-1 rounded-full border shrink-0 ${rec.status === 'rejected' ? 'bg-red-950/20 text-red-400 border-red-900/30' : 'bg-indigo-950/20 text-indigo-400 border-indigo-900/30'}`}>
+                          <span className={`text-[9px] font-black uppercase px-2.5 py-1 rounded-full border shrink-0 ${badge}`}>
                             {rec.status.replace('_', ' ')}
                           </span>
                         </div>
-                        {rec.review_reason && (
-                          <p className="text-[11px] text-slate-400"><span className="text-slate-500 font-bold">Current reason:</span> {rec.review_reason}</p>
-                        )}
-                        <div className="flex gap-2">
-                          <select
-                            value={reason}
-                            onChange={(e) => setReviewReasons({ ...reviewReasons, [rec.id]: e.target.value })}
-                            className="flex-1 px-2.5 py-2 bg-slate-950 border border-slate-800 rounded-lg text-xs text-white focus:outline-none focus:border-indigo-500"
-                          >
-                            <option value="">Select a reason…</option>
-                            {REVIEW_REASONS.map((r) => <option key={r} value={r}>{r}</option>)}
-                          </select>
-                          <button
-                            onClick={() => handleSaveReason(rec.id, reason)}
-                            className="px-3.5 py-2 bg-indigo-600 hover:bg-indigo-500 text-white text-[10px] font-black uppercase tracking-wider rounded-lg shrink-0"
-                          >
-                            Save
-                          </button>
+
+                        {/* Audio stays available after review */}
+                        <div className="bg-slate-950 p-2 rounded-xl border border-slate-800 space-y-1.5">
+                          <audio src={rec.audio_url} controls preload="none" className="w-full h-8" />
+                          <a href={rec.audio_url} target="_blank" rel="noreferrer" download className="text-[9px] text-slate-500 hover:text-indigo-400 flex items-center space-x-1 font-mono">
+                            <Download className="w-3 h-3" /><span>Open / download audio</span>
+                          </a>
                         </div>
+
+                        {(rec.status === 'approved' || rec.status === 'partially_approved') && (
+                          <div className="flex items-center justify-between text-[11px]">
+                            <span className="text-slate-500 font-bold uppercase tracking-wider">Paid ({rec.approved_minutes || 0} pg)</span>
+                            <span className="text-emerald-400 font-black">${earned.toFixed(2)} <span className="text-slate-500 font-semibold">≈ {toINR(earned)}</span></span>
+                          </div>
+                        )}
+
+                        {needsReason && (
+                          <>
+                            {rec.review_reason && (
+                              <p className="text-[11px] text-slate-400"><span className="text-slate-500 font-bold">Reason:</span> {rec.review_reason}</p>
+                            )}
+                            <div className="flex gap-2">
+                              <select
+                                value={reason}
+                                onChange={(e) => setReviewReasons({ ...reviewReasons, [rec.id]: e.target.value })}
+                                className="flex-1 px-2.5 py-2 bg-slate-950 border border-slate-800 rounded-lg text-xs text-white focus:outline-none focus:border-indigo-500"
+                              >
+                                <option value="">Select a reason…</option>
+                                {REVIEW_REASONS.map((r) => <option key={r} value={r}>{r}</option>)}
+                              </select>
+                              <button
+                                onClick={() => handleSaveReason(rec.id, reason)}
+                                className="px-3.5 py-2 bg-indigo-600 hover:bg-indigo-500 text-white text-[10px] font-black uppercase tracking-wider rounded-lg shrink-0"
+                              >
+                                Save
+                              </button>
+                            </div>
+                          </>
+                        )}
                       </div>
                     );
                   })}

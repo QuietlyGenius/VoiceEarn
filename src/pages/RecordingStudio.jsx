@@ -369,7 +369,10 @@ export default function RecordingStudio() {
         accessToken: session.access_token
       });
 
-      const pagesRecorded = Math.abs(currentPageIdx - sessionStartPageIdxRef.current) + 1;
+      const startIdx = sessionStartPageIdxRef.current;
+      const pagesRecorded = Math.abs(currentPageIdx - startIdx) + 1;
+      const startPage = pages[Math.min(startIdx, currentPageIdx)]?.page_number;
+      const endPage = pages[Math.max(startIdx, currentPageIdx)]?.page_number;
       const submitRes = await fetch('/api/recordings', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${session.access_token}` },
@@ -377,7 +380,9 @@ export default function RecordingStudio() {
           book_id: parseInt(bookId),
           audio_url: audioUrlUploaded,
           duration_seconds: recordingSeconds,
-          pages_recorded: pagesRecorded
+          pages_recorded: pagesRecorded,
+          start_page: startPage,
+          end_page: endPage
         })
       });
       if (!submitRes.ok) {

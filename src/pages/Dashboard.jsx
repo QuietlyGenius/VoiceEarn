@@ -153,6 +153,14 @@ export default function Dashboard() {
     });
   };
 
+  // Which pages a clip covered (falls back to the count for older clips).
+  const pageLabel = (rec) => {
+    const s = rec.start_page, e = rec.end_page;
+    if (s && e) return s === e ? `Page ${s}` : `Pages ${s}–${e}`;
+    const n = rec.pages_recorded || 1;
+    return n > 1 ? `${n} pages` : '1 page';
+  };
+
   if (loading) {
     return (
       <div className="flex flex-col items-center justify-center min-h-screen bg-slate-950">
@@ -485,6 +493,9 @@ export default function Dashboard() {
                         </span>
                         <span className="text-[11px] text-slate-400 block font-semibold mt-1">
                           Submitted {new Date(rec.created_at).toLocaleDateString()}
+                        </span>
+                        <span className="text-[11px] text-indigo-400 block font-bold mt-0.5">
+                          {pageLabel(rec)}
                         </span>
                       </div>
                       <div className="text-right shrink-0">
