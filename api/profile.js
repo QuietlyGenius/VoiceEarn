@@ -59,6 +59,22 @@ export default async function handler(req, res) {
         }
         return res.status(200).json({ needs_onboarding: true, email: user.email });
       }
+
+      // Best-effort: record when this user was last active, so admins can see it
+      // in the Users list. Throttled to at most once every 30 min so ordinary
+      // refreshes don't hammer the DB, and tolerant of a missing column (a failed
+      // write here must never block sign-in / profile loading).
+      const lastSeen = profile.last_login_at ? new Date(profile.last_login_at).getTime() : 0;
+      if (Date.now() - lastSeen > 30 * 60 * 1000) {
+        const nowIso = new Date().toISOString();
+        const { error: loginErr } = await supabase
+          .from('profiles')
+          .update({ last_login_at: nowIso })
+          .eq('id', user.id);
+        if (loginErr) console.warn('last_login_at not saved (add column?):', loginErr.message);
+        else profile.last_login_at = nowIso;
+      }
+
       return res.status(200).json(profile);
     }
 

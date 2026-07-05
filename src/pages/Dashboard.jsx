@@ -153,6 +153,12 @@ export default function Dashboard() {
     });
   };
 
+  // The pay rate locked in when a clip was recorded. A rate change only affects
+  // clips recorded afterwards; older clips (before rate-locking) fall back to
+  // the current rate. This keeps a clip's value stable over time.
+  const clipRate = (rec) => (rec.rate_per_page != null ? parseFloat(rec.rate_per_page) : ratePerPage);
+  const fmtRate = (r) => `$${parseFloat(Number(r || 0).toFixed(4))}/page`;
+
   // Which pages a clip covered (falls back to the count for older clips).
   const pageLabel = (rec) => {
     const s = rec.start_page, e = rec.end_page;
@@ -281,7 +287,6 @@ export default function Dashboard() {
               <div className="bg-slate-900/30 border border-slate-900 p-5 rounded-3xl space-y-4">
                 <div className="flex items-center justify-between">
                   <span className="text-xs font-black text-slate-500 uppercase tracking-wider">Your Earnings</span>
-                  <span className="text-[10px] text-indigo-400 font-bold font-mono">Rate: {toUSD(ratePerPage)} / page</span>
                 </div>
 
                 <div className="flex items-baseline justify-between">
@@ -481,8 +486,9 @@ export default function Dashboard() {
                   <p className="text-sm text-slate-500 italic text-center py-6">No recordings submitted yet.</p>
                 ) : (
                   recordings.map((rec) => {
-                    const earnedUsd = parseFloat(rec.approved_minutes || 0) * ratePerPage;
-                    const estimateUsd = (rec.pages_recorded || 1) * ratePerPage;
+                    const rate = clipRate(rec);
+                    const earnedUsd = parseFloat(rec.approved_minutes || 0) * rate;
+                    const estimateUsd = (rec.pages_recorded || 1) * rate;
                     const isEarned = rec.status === 'approved' || rec.status === 'partially_approved';
                     return (
                     <div key={rec.id} className="bg-slate-900/30 p-4 rounded-2xl border border-slate-900 space-y-2.5">
@@ -496,6 +502,9 @@ export default function Dashboard() {
                         </span>
                         <span className="text-[11px] text-indigo-400 block font-bold mt-0.5">
                           {pageLabel(rec)}
+                        </span>
+                        <span className="text-[11px] text-slate-500 block font-mono mt-0.5">
+                          Rate {fmtRate(rate)}
                         </span>
                       </div>
                       <div className="text-right shrink-0">

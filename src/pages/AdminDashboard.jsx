@@ -74,6 +74,15 @@ export default function AdminDashboard() {
       currency: 'INR'
     });
 
+  // A clip is worth the pay rate that was locked in when it was recorded, so a
+  // later rate change never re-values already-recorded clips. Older clips (made
+  // before rate-locking) fall back to the current rate.
+  const clipRate = (rec) =>
+    rec.rate_per_page != null ? parseFloat(rec.rate_per_page) : (parseFloat(ratePerPage) || 0);
+  const fmtRate = (r) => `$${parseFloat(Number(r || 0).toFixed(4))}/page`;
+  const fmtDateTime = (v) =>
+    v ? new Date(v).toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' }) : '—';
+
   const fetchData = async () => {
     if (!session) return;
     try {
@@ -475,7 +484,12 @@ export default function AdminDashboard() {
                       <span className="flex items-center space-x-1.5 font-mono text-emerald-400/80">${parseFloat(u.wallet_balance_usd || 0).toFixed(2)}</span>
                     </div>
                     <div className="flex items-center justify-between pt-1 border-t border-slate-800/50">
-                      <span className="text-[10px] text-slate-600 font-mono">Joined {u.created_at ? new Date(u.created_at).toLocaleDateString() : '—'}</span>
+                      <div className="text-[10px] text-slate-600 font-mono leading-relaxed min-w-0">
+                        <span className="block">Joined {u.created_at ? new Date(u.created_at).toLocaleDateString() : '—'}</span>
+                        <span className="block text-slate-500">
+                          Last login <span className={u.last_login_at ? 'text-indigo-400/80' : ''}>{u.last_login_at ? fmtDateTime(u.last_login_at) : 'Never'}</span>
+                        </span>
+                      </div>
                       {u.status === 'pending' && (
                         <div className="flex space-x-1.5">
                           <button onClick={() => handleReviewRegistration(u.id, 'reject')} className="px-2.5 py-1 bg-red-950/20 text-red-400 hover:bg-red-950/30 border border-red-950/30 text-[9px] font-black rounded uppercase tracking-wider">Reject</button>
@@ -635,8 +649,9 @@ export default function AdminDashboard() {
                 <div className="p-8 bg-slate-900/20 rounded-2xl text-center text-slate-600 border border-slate-900">Review queue is empty.</div>
               ) : (
                 recordings.filter((r) => r.status === 'pending').map((rec) => {
+                  const rate = clipRate(rec);
                   const currentPages = partialPages[rec.id] ?? String(rec.pages_recorded || 1);
-                  const payoutUsd = (parseFloat(currentPages) || 0) * (parseFloat(ratePerPage) || 0);
+                  const payoutUsd = (parseFloat(currentPages) || 0) * rate;
                   const reason = reviewReasons[rec.id] || '';
                   return (
                     <div key={rec.id} className="bg-slate-900/30 rounded-2xl p-4.5 border border-slate-900 space-y-3">
@@ -660,7 +675,7 @@ export default function AdminDashboard() {
 
                       <div className="space-y-3 pt-3 border-t border-slate-900">
                         <div className="flex items-center justify-between space-x-2">
-                          <label className="text-[9px] font-black text-slate-500 uppercase tracking-wider">Approved pages (${ratePerPage}/page)</label>
+                          <label className="text-[9px] font-black text-slate-500 uppercase tracking-wider">Approved pages ({fmtRate(rate)})</label>
                           <input type="number" min="0" step="1" value={currentPages} onChange={(e) => setPartialPages({ ...partialPages, [rec.id]: e.target.value })} className="w-16 px-2 py-1 bg-slate-950 border border-slate-800 rounded text-xs text-center font-bold text-white" />
                         </div>
                         <div className="flex items-center justify-between bg-slate-950/60 rounded-lg px-3 py-2 border border-slate-900">
@@ -705,7 +720,8 @@ export default function AdminDashboard() {
                   .map((rec) => {
                     const reason = reviewReasons[rec.id] ?? rec.review_reason ?? '';
                     const needsReason = rec.status === 'rejected' || rec.status === 'partially_approved';
-                    const earned = parseFloat(rec.approved_minutes || 0) * (parseFloat(ratePerPage) || 0);
+                    const rate = clipRate(rec);
+                    const earned = parseFloat(rec.approved_minutes || 0) * rate;
                     const badge =
                       rec.status === 'approved' ? 'bg-emerald-950/20 text-emerald-400 border-emerald-900/30' :
                       rec.status === 'rejected' ? 'bg-red-950/20 text-red-400 border-red-900/30' :
@@ -716,7 +732,7 @@ export default function AdminDashboard() {
                           <div className="min-w-0">
                             <span className="font-bold text-white block truncate">{rec.books?.title}</span>
                             <span className="text-[10px] text-indigo-400 font-mono block truncate">{rec.profiles?.email}</span>
-                            <span className="text-[10px] text-slate-500 font-mono block mt-0.5">{pageLabel(rec)} • {Math.round(rec.duration_seconds)}s</span>
+                            <span className="text-[10px] text-slate-500 font-mono block mt-0.5">{pageLabel(rec)} • {Math.round(rec.duration_seconds)}s • {fmtRate(rate)}</span>
                           </div>
                           <span className={`text-[9px] font-black uppercase px-2.5 py-1 rounded-full border shrink-0 ${badge}`}>
                             {rec.status.replace('_', ' ')}

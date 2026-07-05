@@ -124,6 +124,25 @@ export default async function handler(req, res) {
         else { recording.start_page = lo; recording.end_page = hi; }
       }
 
+      // Lock in the pay rate at the moment of recording, so a later admin rate
+      // change never retroactively alters what this clip is worth — it's paid at
+      // this rate on approval and shown at this rate in history. Best-effort and
+      // tolerant so a missing rate_per_page column can never block submission.
+      const { data: rateNow } = await supabase
+        .from('settings')
+        .select('value')
+        .eq('key', 'rate_per_page')
+        .maybeSingle();
+      const lockedRate = parseFloat(rateNow?.value ?? 0.01);
+      if (!isNaN(lockedRate) && lockedRate >= 0) {
+        const { error: rErr } = await supabase
+          .from('recordings')
+          .update({ rate_per_page: lockedRate })
+          .eq('id', recording.id);
+        if (rErr) console.warn('rate_per_page not saved (add column?):', rErr.message);
+        else recording.rate_per_page = lockedRate;
+      }
+
       return res.status(201).json(recording);
     }
 
@@ -183,12 +202,18 @@ export default async function handler(req, res) {
         return res.status(400).json({ error: 'Recording has already been reviewed' });
       }
 
-      const { data: rateSetting } = await supabase
-        .from('settings')
-        .select('value')
-        .eq('key', 'rate_per_page')
-        .maybeSingle();
-      const ratePerPage = parseFloat(rateSetting?.value ?? 0.01);
+      // Pay using the rate that was locked in when this clip was recorded, so
+      // later rate changes never change what an already-recorded clip is worth.
+      // Older clips (recorded before rate-locking) fall back to the current rate.
+      let ratePerPage = parseFloat(recording.rate_per_page);
+      if (isNaN(ratePerPage)) {
+        const { data: rateSetting } = await supabase
+          .from('settings')
+          .select('value')
+          .eq('key', 'rate_per_page')
+          .maybeSingle();
+        ratePerPage = parseFloat(rateSetting?.value ?? 0.01);
+      }
       const earnings = pages * ratePerPage;
 
       // Core review update (status + earnings). The reason is applied in a
